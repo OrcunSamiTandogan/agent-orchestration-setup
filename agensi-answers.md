@@ -33,7 +33,7 @@ Agent Orchestration Setup helps you choose a route and turn it into a checklist 
 
 ### What you get
 
-- A setup plan for your operating system and chosen route.
+- A setup plan for your operating system and chosen route. The separate **Ajan Atölyesi / Agent Workshop** desktop app starts in English. Choose Türkçe (TR) in the Language / Dil menu and reopen the app to use Turkish; the choice is saved. The skill itself is in English.
 - The matching copyable prompt for Claude Code or Codex in the [English GitHub guide](https://github.com/OrcunSamiTandogan/agent-orchestration-setup#readme).
 - A checklist to open the workshop, start the selected session, and verify what actually works.
 - For Pi, a [small coding exercise](https://github.com/OrcunSamiTandogan/agent-orchestration-setup/blob/master/demo/GOREV.md) with two tests you can run yourself; for DSH, a text-response check.
@@ -163,7 +163,7 @@ EVREN is open to Turkish citizens and uses Türkiye’s e-Devlet identity verifi
 
 ## Screenshots and Demo video URL
 
-- **Screenshots:** Upload [english-first-run.png](agensi/english-first-run.png) as the first image. It shows the installed English app in a clean test profile with no keys or personal data. The original screenshots of the Agensi form are reference material, not listing images.
+- **Screenshots:** Upload [english-first-run.png](agensi/english-first-run.png) as the first image. For a second image, use [turkish-first-run.png](agensi/turkish-first-run.png). Both show the installed app in clean test profiles with no keys or personal data. The original screenshots of the Agensi form are reference material, not listing images.
 - **Demo video URL:** Leave blank until a public video actually shows this English setup. Do not enter a local video path or an unpublished URL.
 
 ## Documentation Link

@@ -13,6 +13,54 @@ MOCK = "nvapi-" + "fake_fixture_only_" + ("a" * 24)
 
 
 class LauncherTests(unittest.TestCase):
+    def test_language_defaults_to_english_and_preserves_key_file(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, XDG_CONFIG_HOME=tmp):
+            self.assertEqual(APP["read_language"](), "en")
+            directory = Path(tmp) / "ajan-atolyesi"
+            APP["save_key"](MOCK)
+            key_file = directory / ".env"
+            prior = key_file.read_bytes()
+            APP["save_language"]("tr")
+            self.assertEqual(APP["read_language"](), "tr")
+            preference = directory / "language.json"
+            self.assertEqual(preference.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(key_file.read_bytes(), prior)
+            APP["save_language"]("en")
+            self.assertEqual(APP["read_language"](), "en")
+            with self.assertRaises(ValueError):
+                APP["save_language"]("xx")
+
+    def test_language_does_not_follow_or_overwrite_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, XDG_CONFIG_HOME=tmp):
+            directory = Path(tmp) / "ajan-atolyesi"
+            directory.mkdir(mode=0o700)
+            other = Path(tmp) / "unrelated"
+            other.write_text('{"language":"tr"}', encoding="ascii")
+            other.chmod(0o600)
+            pref = directory / "language.json"
+            pref.symlink_to(other)
+            self.assertEqual(APP["read_language"](), "en")
+            with self.assertRaises(OSError):
+                APP["save_language"]("tr")
+            self.assertTrue(pref.is_symlink())
+            self.assertEqual(other.read_text(encoding="ascii"), '{"language":"tr"}')
+            pref.unlink()
+            pref.write_text('{"language":"tr"}' + " " * 80, encoding="ascii")
+            pref.chmod(0o600)
+            self.assertEqual(APP["read_language"](), "en")
+
+    def test_turkish_reminder_and_pi_notice_preserve_the_route_and_tmux_name(self):
+        self.assertIn("Görülen tmux hedefleri: aa-pi.", APP["session_reminder"]({"aa-pi": True}, "tr"))
+        pi_terminal = APP["pi_terminal"]
+        with patch.dict(pi_terminal.__globals__, pi_binary=lambda: "/test/pi", saved_key=lambda: None,
+                        read_language=lambda: "tr"), patch("os.execve") as execute:
+            pi_terminal()
+        binary, args, env = execute.call_args.args
+        self.assertEqual(binary, "/bin/bash")
+        self.assertIn("NVIDIA API anahtarını", args[-1])
+        self.assertNotIn("/test/pi", args)
+        self.assertNotIn("NVIDIA_API_KEY", env)
+
     def test_setup_has_fixed_commands(self):
         for role in ("claude", "codex"):
             for selection in ("pi", "evren", "both"):

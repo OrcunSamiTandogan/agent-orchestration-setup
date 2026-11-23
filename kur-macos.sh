@@ -24,8 +24,8 @@ plist="$contents/Info.plist"
 meta="$resources/.ajan-surum-bilgisi"
 exec_files=(bin/ajan-pencere bin/evren-dsh-terminal bin/ajan-dsh bin/ajan-dsh-pane
             bin/ajan-kur bin/ajan-atolyesi bin/ajan-surum bin/evren-baglanti-kontrol)
-data_files=(VERSION CHANGELOG.md LICENSE SECURITY.md README.md BASLA.md CONTRIBUTING.md KURULUM-PROMPTU.md DOGRULAMA-PROMPTU.md
-            docs/{evren-dsh,sss,linux,macos,windows,manuel-kurulum,kalite}.md
+data_files=(bin/ajan_i18n.py VERSION CHANGELOG.md LICENSE SECURITY.md README.md BASLA.md CONTRIBUTING.md KURULUM-PROMPTU.md DOGRULAMA-PROMPTU.md
+            docs/{evren-dsh,sss,sss-tr,linux,macos,windows,manuel-kurulum,kalite,first-run,agensi}.md
             assets/ajan-atolyesi.svg demo/GOREV.md demo/slug.py demo/test_slug.py)
 
 stat_details() {
@@ -124,8 +124,8 @@ cat > "$staged" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleName</key><string>Agent Orchestration Setup</string>
-<key>CFBundleDisplayName</key><string>Agent Orchestration Setup</string>
+<key>CFBundleName</key><string>Ajan Atölyesi</string>
+<key>CFBundleDisplayName</key><string>Ajan Atölyesi / Agent Workshop</string>
 <key>CFBundleIdentifier</key><string>io.github.orcunsamitandogan.ajan-atolyesi</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleExecutable</key><string>ajan-atolyesi</string>

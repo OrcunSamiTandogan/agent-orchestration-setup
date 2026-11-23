@@ -1,6 +1,6 @@
 # Agent Orchestration Setup
 
-Start Pi, DSH, Claude Code, Codex, or a plain terminal from one desktop window. Pi and DSH run independently. You do not need Claude Code or Codex to use them.
+**Ajan Atölyesi / Agent Workshop** opens Pi, DSH, Claude Code, Codex, and a plain terminal in one desktop window. The app starts in English; choose **Türkçe (TR)** under **Language / Dil** in the left sidebar, then reopen the app when convenient. The selection is saved locally; changing it does not close running sessions. Pi and DSH run independently. You do not need Claude Code or Codex to use them.
 
 ## Start here
 

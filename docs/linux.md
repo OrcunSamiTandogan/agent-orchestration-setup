@@ -8,7 +8,7 @@
    sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-vte-2.91 tmux
    ```
 
-3. Run `bash masaustune-kur.sh`. Open **Agent Orchestration Setup** from your application menu or the desktop shortcut. If your desktop offers **Allow Launching** for this shortcut, verify its source before using it.
+3. Run `bash masaustune-kur.sh`. Open **Ajan Atölyesi / Agent Workshop** from your application menu or the desktop shortcut. If your desktop offers **Allow Launching** for this shortcut, verify its source before using it.
 4. In the app's **Terminal**, run `node -v` and `npm -v`. Pi needs Node 22.19+; DSH needs 24.9+. If Node or npm is missing or too old, use the [first-run checklist](first-run.md#first-run-checklist), then reopen the app and check its terminal again.
 
 [Open your first session](../README.md#open-your-first-session) · [Troubleshooting](sss.md)

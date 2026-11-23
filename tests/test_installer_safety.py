@@ -82,7 +82,8 @@ class InstallerSafetyTest(unittest.TestCase):
     def test_linux_package_and_safe_reinstall_keep_unrelated_user_file(self):
         self.install("masaustune-kur.sh")
         self.assertTrue(self.version(self.linux / "ac").startswith(VERSION))
-        self.assertTrue((self.data / "applications/ajan-atolyesi.desktop").is_file())
+        self.assertIn("Name=Ajan Atölyesi / Agent Workshop", (self.data / "applications/ajan-atolyesi.desktop").read_text())
+        self.assertEqual((self.linux / "bin/ajan_i18n.py").read_bytes(), (ROOT / "bin/ajan_i18n.py").read_bytes())
         self.assertTrue((self.desktop / "Ajan Atölyesi.desktop").is_file())
         unrelated = self.linux / "my-notes.txt"
         unrelated.write_text("preserved", encoding="utf-8")
@@ -101,7 +102,7 @@ class InstallerSafetyTest(unittest.TestCase):
         self.install("masaustune-kur.sh")
         standin = self.safe_standin("linux-file")
         for leaf in (self.linux / ".ajan-atolyesi", self.linux / "bin/ajan-pencere",
-                     self.linux / "ac", self.linux / ".ajan-surum-bilgisi",
+                     self.linux / "ac", self.linux / ".ajan-surum-bilgisi", self.linux / "bin/ajan_i18n.py",
                      self.desktop / "Ajan Atölyesi.desktop"):
             with self.subTest(leaf=leaf.name):
                 prior = leaf.with_name(leaf.name + ".prior")
@@ -134,6 +135,8 @@ class InstallerSafetyTest(unittest.TestCase):
         self.install("kur-macos.sh")
         metadata = plistlib.loads((self.mac / "Info.plist").read_bytes())
         self.assertEqual(metadata["CFBundleShortVersionString"], VERSION)
+        self.assertEqual(metadata["CFBundleDisplayName"], "Ajan Atölyesi / Agent Workshop")
+        self.assertEqual((self.mac / "Resources/bin/ajan_i18n.py").read_bytes(), (ROOT / "bin/ajan_i18n.py").read_bytes())
         self.assertTrue(self.version(self.mac / "MacOS/ajan-atolyesi").startswith(VERSION))
         unmanaged = self.mac / "Resources/local-note"
         unmanaged.write_text("preserved", encoding="utf-8")
@@ -145,7 +148,7 @@ class InstallerSafetyTest(unittest.TestCase):
         standin = self.safe_standin("mac-file")
         for leaf in (self.mac / ".ajan-atolyesi", self.mac / "Info.plist",
                      self.mac / "MacOS/ajan-atolyesi", self.mac / "Resources/bin/ajan-pencere",
-                     self.mac / "Resources/.ajan-surum-bilgisi"):
+                     self.mac / "Resources/.ajan-surum-bilgisi", self.mac / "Resources/bin/ajan_i18n.py"):
             with self.subTest(leaf=leaf.name):
                 prior = leaf.with_name(leaf.name + ".prior")
                 leaf.rename(prior)

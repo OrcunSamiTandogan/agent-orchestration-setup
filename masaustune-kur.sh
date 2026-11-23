@@ -34,13 +34,13 @@ identity = app / ".ajan-atolyesi"
 launcher = app / "ac"
 metadata = app / ".ajan-surum-bilgisi"
 marker = "X-Ajan-Atolyesi=true"
-files = ("bin/ajan-pencere", "bin/evren-dsh-terminal", "bin/ajan-dsh",
+files = ("bin/ajan-pencere", "bin/ajan_i18n.py", "bin/evren-dsh-terminal", "bin/ajan-dsh",
          "bin/ajan-dsh-pane", "bin/ajan-kur", "bin/ajan-atolyesi", "bin/ajan-surum",
          "bin/evren-baglanti-kontrol", "VERSION", "CHANGELOG.md", "LICENSE", "SECURITY.md",
          "README.md",
          "BASLA.md", "CONTRIBUTING.md", "KURULUM-PROMPTU.md", "DOGRULAMA-PROMPTU.md", "docs/evren-dsh.md",
-         "docs/sss.md", "docs/linux.md", "docs/macos.md", "docs/windows.md",
-         "docs/manuel-kurulum.md", "docs/kalite.md", "demo/GOREV.md",
+         "docs/sss.md", "docs/sss-tr.md", "docs/linux.md", "docs/macos.md", "docs/windows.md",
+         "docs/manuel-kurulum.md", "docs/kalite.md", "docs/first-run.md", "docs/agensi.md", "demo/GOREV.md",
          "demo/slug.py", "demo/test_slug.py", "assets/ajan-atolyesi.svg")
 
 def reject(path):
@@ -124,7 +124,7 @@ def write_contents(path, data, mode=0o644):
     write_atomic(path, lambda out: out.write(data), mode)
 
 def copy_item(relative):
-    mode = 0o755 if relative.startswith("bin/") else 0o644
+    mode = 0o755 if relative.startswith("bin/") and not relative.endswith(".py") else 0o644
     with (base / relative).open("rb") as source:
         write_atomic(app / relative, lambda out: shutil.copyfileobj(source, out), mode)
 
@@ -145,7 +145,7 @@ def desktop_arg(path):
         arg = arg.replace(old, new)
     return '"' + arg.replace("\\", "\\\\") + '"'
 
-entry = ("[Desktop Entry]\nType=Application\nName=Agent Orchestration Setup\n"
+entry = ("[Desktop Entry]\nType=Application\nName=Ajan Atölyesi / Agent Workshop\n"
          f"Exec={desktop_arg(launcher)}\n"
          f"Icon={app / 'assets/ajan-atolyesi.svg'}\n"
          f"Terminal=false\nStartupWMClass=ajan-atolyesi\nCategories=Development;\n{marker}\n")

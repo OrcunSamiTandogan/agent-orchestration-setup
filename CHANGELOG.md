@@ -1,5 +1,9 @@
 # Changelog
 
+## Desktop interface
+
+- Ajan Atölyesi / Agent Workshop defaults to English. Turkish can be selected in the app and the language choice is saved locally. The Agensi guide remains in English.
+
 ## Setup reliability
 
 - Pi no longer launches a different local profile when no NVIDIA key was saved in the app.

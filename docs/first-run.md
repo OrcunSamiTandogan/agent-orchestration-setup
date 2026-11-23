@@ -4,6 +4,7 @@ Start at the first step that fails. Keep your existing installation and sessions
 
 | What you see | What to check next |
 |---|---|
+| The app opened in English | English is the default. Choose **Türkçe (TR)** under **Language / Dil** in the left sidebar. Reopen the app when convenient. The choice is saved and selecting it does not close running sessions. This changes the app interface, not the model or provider. |
 | Not sure which path to choose | Pick **Pi only** if you have NVIDIA access and want file-editing agents. Pick **DSH only** if you have an EVREN API key and want this setup's text-only DSH sessions. Pick **Pi and DSH** only if you want both. No EVREN access? Use Pi if you can access NVIDIA; an account or provider quota is not guaranteed. |
 | Claude Code or Codex cannot find the downloaded installer | Use the [GitHub source ZIP](https://github.com/OrcunSamiTandogan/agent-orchestration-setup/archive/refs/heads/master.zip), not the Agensi skill ZIP. Extract it before opening a terminal in that folder. If using an agent on Windows, start it inside the Ubuntu WSL 2 distro. |
 | No desktop window | Follow the platform guide for [Ubuntu](linux.md), [macOS](macos.md), or [Windows/WSL](windows.md). The Windows app needs WSLg. On macOS and Windows the GUI flow is still a preview; do not disable desktop security features to make it launch. |
