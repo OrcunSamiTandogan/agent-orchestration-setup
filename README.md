@@ -4,6 +4,8 @@ Start Pi, DSH, Claude Code, Codex, or a plain terminal from one desktop window. 
 
 ## Set up with Claude Code or Codex
 
+The [EVREN](https://evren.ssyz.org.tr/) service is open to Turkish citizens and uses Türkiye’s e-Devlet identity verification ([university announcement](https://www.ktu.edu.tr/ofyazilim/duyuru/evren-platformu)). If you do not have EVREN access, choose **Pi only** and use NVIDIA instead.
+
 Choose what to install, then expand **Claude Code** or **Codex** and copy the complete prompt into that tool's terminal. No coding agent installed? Use the [manual setup guide](docs/manuel-kurulum.md).
 
 ### Pi and DSH

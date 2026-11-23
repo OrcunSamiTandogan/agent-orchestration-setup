@@ -2,6 +2,10 @@
 
 Both entry points use the official [DeepSeek Harness package](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli) and send model requests through EVREN to DeepSeek V4.1 Flash. DSH needs Node.js 24.9+ and npm. CLI also uses tmux. Save your EVREN key in the app's masked **EVREN API key** field. No NVIDIA key is required.
 
+## Who can use this route?
+
+The [EVREN](https://evren.ssyz.org.tr/) service is open to Turkish citizens and uses Türkiye’s e-Devlet identity verification ([university announcement](https://www.ktu.edu.tr/ofyazilim/duyuru/evren-platformu)). If you do not have EVREN access, choose **Pi only** and use NVIDIA instead. An EVREN API key is still needed for DSH.
+
 ## DSH CLI
 
 Choose a trusted folder and open **DSH CLI**. The app starts the official `sdk-minimal` process in tmux session `aa-evren-cli` and shows its own **DSH >** prompt, not DeepSeek’s native TUI. Enter plain text there. `/new` starts a new DSH conversation, `/id` displays its ID, and `/exit` closes it. The DSH conversation ID is not the tmux target or a recovery code.

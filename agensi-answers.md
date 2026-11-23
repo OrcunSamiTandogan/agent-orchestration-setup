@@ -42,6 +42,8 @@ Agent Orchestration Setup helps you choose a route and turn it into a checklist 
 
 The free skill provides instructions. It does not read your files, take your API keys, or install software. An approved install runs separately on your computer. Pi uses an NVIDIA key; DSH uses an EVREN key. Enter your key in the local app, not in an agent chat. Provider limits and charges are separate from the free skill.
 
+The [EVREN](https://evren.ssyz.org.tr/) service is open to Turkish citizens and uses Türkiye’s e-Devlet identity verification ([university announcement](https://www.ktu.edu.tr/ofyazilim/duyuru/evren-platformu)). If you do not have EVREN access, choose **Pi only** and use NVIDIA instead.
+
 Ubuntu 24.04 is the reference Linux setup. macOS and Windows via WSL2 are preview routes. The desktop app and instructions are available directly from GitHub under the MIT license; Agensi is optional.
 ````
 
@@ -129,7 +131,7 @@ If the optional section offers matching fields, use the following. Otherwise kee
 |---|---|
 | Output | Platform-specific setup plan, a matching install prompt link, and a short first-task checklist. |
 | Inputs | Operating system, Claude Code or Codex, and Pi, DSH, or both. No API keys. |
-| Version | 1.0.0 (guide skill, not desktop application version). |
+| Version | 1.0.1 (guide skill, not desktop application version). |
 | Source / repository | https://github.com/OrcunSamiTandogan/agent-orchestration-setup |
 | License | MIT. |
 
@@ -157,6 +159,12 @@ Tell the guide your operating system, the local assistant you use, and your pref
 
 ```text
 No for the guide. The workshop is open source. Pi uses your NVIDIA account, and DSH uses your EVREN account; provider terms and quotas still apply. Never put a provider key in Agensi, an agent chat, or a screenshot.
+```
+
+### Who can use the EVREN route?
+
+```text
+EVREN is open to Turkish citizens and uses Türkiye’s e-Devlet identity verification. You need an EVREN API key for DSH. If you do not have EVREN access, choose Pi only and use an NVIDIA account.
 ```
 
 ## Screenshots and Demo video URL
