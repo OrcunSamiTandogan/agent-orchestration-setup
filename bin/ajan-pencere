@@ -1,0 +1,1354 @@
+#!/usr/bin/python3
+"""Agent Orchestration Setup: local GTK/VTE window, no model calls of its own."""
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+
+
+OPTIONS = (
+    ("Verify with Claude", "setup-claude"),
+    ("Verify with Codex", "setup-codex"),
+    ("Codex session", "codex"),
+    ("Claude session", "claude"),
+    ("Pi", "pi"),
+    ("DSH CLI", "evren-cli"),
+    ("DSH Web", "evren"),
+    ("Terminal", "terminal"),
+)
+ICONS = (
+    ("Terminal", "utilities-terminal-symbolic"),
+    ("Setup", "system-run-symbolic"),
+    ("Star", "emblem-favorite-symbolic"),
+    ("Code", "applications-development-symbolic"),
+    ("Shield", "security-high-symbolic"),
+    ("Play", "media-playback-start-symbolic"),
+    ("Sun", "weather-clear-symbolic"),
+    ("Network", "network-workgroup-symbolic"),
+    ("Dot", "media-record-symbolic"),
+)
+STATES = {
+    "closed": ("#343943", "Closed"),
+    "ready": ("#36a86b", "Terminal open"),
+    "active": ("#3987f7", "Terminal activity"),
+}
+ROOT = Path(__file__).resolve().parents[1]
+NVIDIA_URL = "https://integrate.api.nvidia.com/v1"
+KIMI_ID = "moonshotai/kimi-k3.1-pro"
+MINIMAX_ID = "minimaxai/minimax-m3.1-flash"
+NVIDIA_SCOPE = ",".join("nvidia/" + model for model in (
+    MINIMAX_ID, KIMI_ID, "nvidia/nemotron-3.5-lightning-30b-a3b"))
+DSH_PACKAGE = "@deepseek-ai/dsh@0.2.2-rc.5"
+DSH_GUIDE = "https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli"
+PI_PACKAGE = "@earendil-works/pi-coding-agent@1.6.0"
+PI_GUIDE = "https://docs.pi.dev/latest/quickstart"
+REPO_URL = "https://github.com/OrcunSamiTandogan/agent-orchestration-setup"
+FAQ_URL = REPO_URL + "/blob/master/docs/sss.md"
+ABOUT_TEXT = ("A local desktop launcher for Codex, Claude Code, Pi and DeepSeek Harness (DSH) sessions.\n\n"
+              "DSH CLI and DSH Web open separately. A standalone terminal is also available.")
+KEY = re.compile(r"nvapi-[A-Za-z0-9_.-]{8,500}")
+
+
+def source_version():
+    try:
+        return subprocess.check_output(
+            ["bash", str(ROOT / "bin/ajan-surum"), "--display"], text=True, timeout=4
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        return "Version or build unknown"
+
+
+def config_dir():
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "ajan-atolyesi"
+
+
+PROVIDERS = {
+    "NVIDIA_API_KEY": ("NVIDIA", KEY),
+    "EVREN_API_KEY": ("EVREN", re.compile(r"[!-~]{8,512}")),
+}
+
+
+def read_keys():
+    try:
+        fd = os.open(config_dir() / ".env", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return {}
+    with os.fdopen(fd, "r", encoding="ascii") as handle:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or stat.S_IMODE(st.st_mode) != 0o600:
+            raise OSError("The .env file must be readable only by its owner (0600).")
+        content = handle.read(2049)
+        if len(content) > 2048:
+            raise ValueError("The app's .env file has an unexpected format.")
+        result = {}
+        for line in content.splitlines():
+            variable, sep, key = line.partition("=")
+            if (not sep or variable in result or variable not in PROVIDERS
+                    or not PROVIDERS[variable][1].fullmatch(key)):
+                raise ValueError("The app's .env file has an unexpected format.")
+            result[variable] = key
+        return result
+
+
+def save_key(key, variable="NVIDIA_API_KEY"):
+    name, pattern = PROVIDERS[variable]
+    if not pattern.fullmatch(key):
+        raise ValueError(f"Enter a valid {name} API key.")
+    directory = config_dir()
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    st = directory.lstat()
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():
+        raise OSError("A secure settings directory is required.")
+    values = read_keys()
+    values[variable] = key
+    fd, tmp = tempfile.mkstemp(prefix=".provider-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as handle:
+            for variable, value in sorted(values.items()):
+                handle.write(f"{variable}={value}\n")
+        os.replace(tmp, directory / ".env")
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def saved_key(variable="NVIDIA_API_KEY"):
+    return read_keys().get(variable)
+
+
+def key_file_status():
+    try:
+        saved = read_keys()
+    except (OSError, ValueError):
+        return {provider: "Unreadable" for provider in PROVIDERS}
+    return {provider: "Saved" if provider in saved else "Not yet entered"
+            for provider in PROVIDERS}
+
+
+def note_shell(note):
+    return ["/bin/bash", "--noprofile", "--norc", "-c",
+            'printf "%s\\n\\n" "$1"; exec /bin/bash --noprofile --norc -i',
+            "ajan-atolyesi", note]
+
+
+def agent_for(role):
+    agent = role.removeprefix("setup-")
+    return agent if agent in ("claude", "codex") else None
+
+
+def tmux_role(role):
+    return role if role in ("pi", "evren-cli") else agent_for(role)
+
+
+ATOLYE_TMUX_NAMES = ("aa-codex", "aa-claude", "aa-pi", "aa-evren-cli", "aa-codex-atolye", "aa-claude-atolye")
+TMUX_FULL = {"codex": "aa-codex-tam", "claude": "aa-claude-tam"}
+TMUX_ALTERNATES = {"codex": "aa-codex-atolye", "claude": "aa-claude-atolye"}
+PUBLIC_TMUX_OWNER = "ajan-atolyesi-public-v1"
+
+
+def tmux_candidates():
+    tmux = shutil.which("tmux")
+    if not tmux:
+        return {}
+    try:
+        result = subprocess.run([tmux, "list-sessions", "-F", "#{session_name} #{session_id}"],
+                                capture_output=True, text=True, timeout=0.8)
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    sessions = {}
+    if result.returncode == 0:
+        for line in result.stdout.splitlines():
+            name, _, session_id = line.partition(" ")
+            if (name in ATOLYE_TMUX_NAMES or name in TMUX_FULL.values()) and re.fullmatch(r"\$[0-9]+", session_id):
+                sessions[name] = (tmux, session_id)
+    return sessions
+
+
+def trusted_session(name, target, mode="normal"):
+    if name == "aa-evren-cli":
+        return True  # The separate EVREN launcher has no unsafe mode.
+    binary, session_id = target
+    for variable, expected in (("AA_ATOLYE_OWNER", PUBLIC_TMUX_OWNER),
+                               ("AA_SETUP_MODE", mode)):
+        try:
+            result = subprocess.run([binary, "show-environment", "-t", session_id, variable],
+                                    capture_output=True, text=True, timeout=0.8)
+        except (OSError, subprocess.SubprocessError):
+            return False
+        if result.returncode or result.stdout.rstrip("\n") != f"{variable}={expected}":
+            return False
+    return True
+
+
+def atolye_sessions():
+    return {name: target for name, target in tmux_candidates().items()
+            if trusted_session(name, target)}
+
+
+def resolve_session(agent, mode="normal"):
+    if mode == "full":
+        name = TMUX_FULL.get(agent)
+        if not name:
+            return "absent", "", None
+        target = tmux_candidates().get(name)
+        if target is None:
+            return "absent", name, None
+        return ("trusted", name, target) if trusted_session(name, target, "full") else ("blocked", name, None)
+    name = f"aa-{agent}"
+    if name not in ATOLYE_TMUX_NAMES or name in TMUX_ALTERNATES.values():
+        return "absent", name, None
+    candidates = tmux_candidates()
+    target = candidates.get(name)
+    if target is not None and trusted_session(name, target):
+        return "trusted", name, target
+    alternate = TMUX_ALTERNATES.get(agent)
+    if alternate:
+        alternate_target = candidates.get(alternate)
+        if alternate_target is not None and trusted_session(alternate, alternate_target):
+            return "trusted", alternate, alternate_target
+        if target is not None and alternate_target is None:
+            return "alternate", alternate, None
+    return ("blocked", name, None) if target is not None else ("absent", name, None)
+
+
+def session_attachment(agent):
+    state, _, target = resolve_session(agent)
+    return state, target
+
+
+def named_session(agent):
+    return resolve_session(agent)[2]
+
+
+PI_TRUST_NOTICE = (
+    "Pi and the tools it runs can access your NVIDIA API key. "
+    "Instructions in the folder and content you submit may be sent to NVIDIA. "
+    "Only open your own code or a folder you trust. "
+    "For your first run, use the bundled sample folder. Do not paste keys into chat."
+)
+
+
+def session_reminder(sessions):
+    live = ", ".join(name for name in ATOLYE_TMUX_NAMES if name in sessions)
+    return (
+        "Agent Orchestration Setup session reminder\n\n"
+        f"Detected tmux targets: {live or 'no verified open targets'}.\n"
+        "Possible targets: aa-codex (Codex), aa-claude (Claude), aa-pi (Pi), "
+        "aa-evren-cli (DSH CLI). If names conflict, a verified aa-codex-atolye or "
+        "aa-claude-atolye can be used. DSH Web and the standalone Terminal are not tmux targets.\n\n"
+        "Send a message only when the user asks you to contact another session. "
+        "First recheck the exact name and open pane on the default tmux server. "
+        "The selected project folder can differ from the open pane's folder. Verify both if needed. "
+        "Do not switch to a similarly named session, a test session, or a session on another server. "
+        "An open tmux session does not mean its agent is ready for input. "
+        "Stop and tell the user if the target is uncertain or busy.\n\n"
+        "Send the message once to the verified target. Delivery to the pane "
+        "does not mean the reply is complete. Do not report completion without seeing new output or an error. "
+        "Do not resend automatically after a short wait."
+    )
+
+
+def session_pane_path(target):
+    if not target:
+        return None
+    binary, session_id = target
+    try:
+        result = subprocess.run([binary, "display-message", "-p", "-t", session_id,
+                                 "#{pane_current_path}"],
+                                capture_output=True, text=True, timeout=0.8)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    path = result.stdout.rstrip("\n")
+    return path if result.returncode == 0 and path.startswith("/") and "\n" not in path else None
+
+
+def session_command(role, mode="normal", setup_selection=None, session_id=None):
+    if mode not in ("normal", "existing", "full"):
+        raise ValueError("Invalid permission mode")
+    if mode == "full" and role not in ("claude", "codex"):
+        raise ValueError("Full access is available only from a standard agent row")
+    setup = role in ("setup-claude", "setup-codex") and mode != "existing"
+    if (setup and setup_selection not in ("pi", "evren", "both")) or (not setup and setup_selection is not None):
+        raise ValueError("Select at least one tool to verify")
+    if session_id is not None and (mode != "existing" or not (agent_for(role) or role == "pi")
+                                   or not re.fullmatch(r"\$[0-9]+", session_id)):
+        raise ValueError("Invalid session ID")
+    if role == "evren-cli" and mode in ("normal", "existing"):
+        return [str(ROOT / "bin/ajan-dsh-pane")]
+    if role == "pi":
+        if mode == "existing" and session_id is None:
+            raise ValueError("A Pi tmux session ID is required")
+        return [sys.executable, str(Path(__file__).resolve()), "--pi-tmux"] + (
+            [session_id] if session_id else [])
+    agent = agent_for(role)
+    if agent:
+        return [str(ROOT / "bin/ajan-kur"), agent, mode,
+                "setup" if setup else "plain"] + (
+                    [setup_selection] if setup else [session_id] if session_id else [])
+    if mode != "normal":
+        raise ValueError("This session cannot change its permission mode")
+    if role == "evren":
+        return [sys.executable, str(ROOT / "bin/evren-dsh-terminal")]
+    if role == "terminal":
+        shell = os.environ.get("SHELL", "")
+        if not Path(shell).is_absolute() or not Path(shell).is_file() or not os.access(shell, os.X_OK):
+            shell = "/bin/bash"
+        return [shell, "-i"]
+    raise ValueError("Unknown session")
+
+
+def add_nvidia_models(directory):
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = directory / "models.json"
+    if path.is_symlink():
+        raise OSError("The model settings file cannot be a symbolic link.")
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        settings = {}
+    if not isinstance(settings, dict):
+        raise ValueError("The model settings file has an unexpected format.")
+    providers = settings.setdefault("providers", {})
+    if not isinstance(providers, dict):
+        raise ValueError("The model provider settings have an unexpected format.")
+    nvidia = providers.setdefault("nvidia", {})
+    if not isinstance(nvidia, dict) or nvidia.get("baseUrl", NVIDIA_URL) != NVIDIA_URL:
+        raise ValueError("The NVIDIA provider address has changed.")
+    models = nvidia.setdefault("models", [])
+    if not isinstance(models, list) or not all(isinstance(m, dict) for m in models):
+        raise ValueError("The NVIDIA model list has an unexpected format.")
+    bundled = {
+        KIMI_ID: ("Kimi K3.1 Pro", 1000000),
+        MINIMAX_ID: ("MiniMax M3.1 Flash", 262144),
+    }
+    changed = False
+    for model_id, (name, context_window) in bundled.items():
+        existing = next((m for m in models if m.get("id") == model_id), None)
+        if existing is not None:
+            if existing.get("baseUrl", NVIDIA_URL) != NVIDIA_URL:
+                raise ValueError("An NVIDIA model is configured with a different provider address.")
+            continue
+        models.append({"id": model_id, "name": name,
+                       "baseUrl": NVIDIA_URL, "api": "openai-completions",
+                       "input": ["text", "image"], "reasoning": True,
+                       "contextWindow": context_window, "maxTokens": 16384})
+        changed = True
+    if not changed:
+        return
+    fd, tmp = tempfile.mkstemp(prefix=".models-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(settings, handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def pi_prefix():
+    return config_dir() / "pi-install"
+
+
+def pi_binary():
+    local = pi_prefix() / "bin/pi"
+    return str(local) if local.is_file() and os.access(local, os.X_OK) else shutil.which("pi")
+
+
+def dsh_prefix():
+    return config_dir() / "dsh-install"
+
+
+def dsh_binary():
+    local = dsh_prefix() / "bin/dsh"
+    return str(local) if local.is_file() and os.access(local, os.X_OK) else shutil.which("dsh")
+
+
+def npm_install_command(prefix, package, min_version):
+    node, npm = shutil.which("node"), shutil.which("npm")
+    if not (node and npm):
+        return None
+    try:
+        version = subprocess.check_output([node, "--version"], text=True, timeout=2).strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", version)
+    if not match or tuple(map(int, match.groups())) < min_version:
+        return None
+    return [npm, "install", "-g", "--ignore-scripts", "--no-audit", "--no-fund",
+            "--registry=https://registry.npmjs.org/", "--globalconfig=/dev/null",
+            "--fetch-retries=0", "--fetch-timeout=60000", "--prefix", str(prefix), package]
+
+
+def installed_package_ready(prefix, binary, package, env):
+    path = prefix / "bin" / binary
+    if not path.is_file() or not os.access(path, os.X_OK):
+        return False
+    try:
+        version = subprocess.check_output([str(path), "--version"], text=True,
+                                          stderr=subprocess.DEVNULL, env=env, timeout=3).strip()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return version == package.rsplit("@", 1)[-1]
+
+
+def pi_install_command():
+    return npm_install_command(pi_prefix(), PI_PACKAGE, (22, 19, 0))
+
+
+def dsh_install_command():
+    return npm_install_command(dsh_prefix(), DSH_PACKAGE, (24, 9, 0))
+
+
+def pi_tmux(expected_id=None):
+    tmux = shutil.which("tmux")
+    if not tmux:
+        print("Install tmux before opening Pi.", file=sys.stderr)
+        return 1
+    # Only the Pi process inside the pane reads its saved provider key.
+    keep = ("HOME", "USER", "LOGNAME", "PATH", "SHELL", "TERM", "COLORTERM",
+            "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TMP", "TEMP",
+            "TMUX", "TMUX_TMPDIR", "XDG_CONFIG_HOME")
+    env = {name: os.environ[name] for name in keep if name in os.environ}
+    attachment, target = session_attachment("pi")
+    if expected_id is None:
+        if attachment != "absent":
+            print("aa-pi opened in the meantime. Check the project folder and try again.", file=sys.stderr)
+            return 1
+        result = subprocess.run(
+            [tmux, "new-session", "-d", "-E", "-P", "-F", "#{session_id}",
+             "-s", "aa-pi", "-c", os.getcwd(),
+             "-e", f"AA_ATOLYE_OWNER={PUBLIC_TMUX_OWNER}", "-e", "AA_SETUP_MODE=normal",
+             "-e", f"PATH={env.get('PATH', os.defpath)}",
+             "-e", f"XDG_CONFIG_HOME={env.get('XDG_CONFIG_HOME', '')}",
+             sys.executable, str(Path(__file__).resolve()), "--pi-terminal"],
+            env=env, capture_output=True, text=True)
+        if result.returncode == 0:
+            expected_id = result.stdout.strip()
+            attachment, target = session_attachment("pi")
+    if attachment != "trusted" or (expected_id is not None and target[1] != expected_id):
+        print("Could not verify the aa-pi session. Reopen Pi.", file=sys.stderr)
+        return 1
+    command = "switch-client" if env.get("TMUX") else "attach-session"
+    os.execve(tmux, [tmux, command, "-E", "-t", target[1]], env)
+
+
+def pi_terminal():
+    # The tmux server can predate this launch and have its own global environment.
+    keep = ("HOME", "USER", "LOGNAME", "PATH", "SHELL", "TERM", "COLORTERM",
+            "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TMP", "TEMP")
+    env = {name: os.environ[name] for name in keep if name in os.environ}
+    binary = pi_binary()
+    if not binary:
+        args = note_shell("Pi is not installed. Setup guide: https://docs.pi.dev/latest/quickstart")
+        os.execve(args[0], args, env)
+    try:
+        key = saved_key()
+    except (OSError, ValueError):
+        args = note_shell("Could not read the NVIDIA settings. See API keys for the file location. Troubleshooting: " + FAQ_URL)
+        os.execve(args[0], args, env)
+    if key:
+        directory = config_dir() / "pi"
+        try:
+            add_nvidia_models(directory)
+        except (OSError, ValueError):
+            args = note_shell("Could not add NVIDIA model settings. The existing file was left unchanged.")
+            os.execve(args[0], args, env)
+        env["NVIDIA_API_KEY"] = key
+        env["PI_CODING_AGENT_DIR"] = str(directory)
+        os.execve(binary, [binary, "--models", NVIDIA_SCOPE, "--model", "nvidia/" + MINIMAX_ID, "--thinking", "low", "--no-extensions"], env)
+    os.execve(binary, [binary], env)
+
+
+def session_icons():
+    path = config_dir() / "appearance.json"
+    if path.is_symlink():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return {}
+    if not isinstance(value, dict):
+        return {}
+    roles, icons = dict(OPTIONS).values(), dict(ICONS).values()
+    return {role: icon for role, icon in value.items() if role in roles and icon in icons}
+
+
+def save_session_icon(role, icon):
+    if role not in dict(OPTIONS).values() or (icon is not None and icon not in dict(ICONS).values()):
+        raise ValueError("Unknown session or icon")
+    directory = config_dir()
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    st = directory.lstat()
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():
+        raise OSError("Could not use the settings folder.")
+    values = session_icons()
+    if icon is None:
+        values.pop(role, None)
+    else:
+        values[role] = icon
+    fd, tmp = tempfile.mkstemp(prefix=".appearance-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(values, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        os.replace(tmp, directory / "appearance.json")
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+DESKTOP_CSS = b"""
+.aa-caption { font-size: 0.91em; }
+button.aa-row { padding: 5px 10px; min-height: 25px; }
+button.aa-row.aa-selected { font-weight: bold; box-shadow: inset 2px 0 @theme_selected_bg_color; }
+button.aa-close { min-width: 22px; padding: 3px 4px; }
+"""
+
+
+def make_window(Gtk, Vte, Gio, GLib, smoke_terminal=False):
+    win = Gtk.Window(title="Agent Orchestration Setup")
+    win.set_wmclass("ajan-atolyesi", "ajan-atolyesi")
+    win.set_default_size(1000, 650)
+    win.connect("destroy", Gtk.main_quit)
+    from gi.repository import Gdk, GdkPixbuf
+    icon_path = str(ROOT / "assets/ajan-atolyesi.svg")
+    try:
+        win.set_icon_from_file(icon_path)
+        brand_icon = GdkPixbuf.Pixbuf.new_from_file_at_scale(icon_path, 25, 25, True)
+    except GLib.Error:
+        brand_icon = None
+    css = Gtk.CssProvider()
+    css.load_from_data(DESKTOP_CSS)
+    Gtk.StyleContext.add_provider_for_screen(win.get_screen(), css,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+    win.add(layout)
+
+    left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+    left.set_border_width(12)
+    left.set_size_request(240, -1)
+
+    def set_row_icon(button, name):
+        image = Gtk.Image.new_from_icon_name(name, Gtk.IconSize.MENU)
+        image.set_margin_end(8)
+        button.set_image(image)
+        button.set_always_show_image(True)
+
+    def row_button(label, icon=None, setup=False):
+        button = Gtk.Button(label=label)
+        style = button.get_style_context()
+        style.add_class("aa-row")
+        style.add_class("flat")
+        if setup:
+            style.add_class("aa-setup")
+        if icon:
+            set_row_icon(button, icon)
+        button.set_alignment(0.0, 0.5)
+        return button
+    layout.pack_start(left, False, False, 0)
+    layout.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 0)
+
+    brand = Gtk.Box(spacing=8)
+    glyph = (Gtk.Image.new_from_pixbuf(brand_icon) if brand_icon is not None
+             else Gtk.Image.new_from_icon_name("utilities-terminal-symbolic", Gtk.IconSize.BUTTON))
+    brand.pack_start(glyph, False, False, 0)
+    title = Gtk.Label(xalign=0)
+    title.set_markup("<b>Agent Orchestration Setup</b>")
+    brand.pack_start(title, True, True, 0)
+    reminder_button = Gtk.Button()
+    reminder_button.set_image(Gtk.Image.new_from_icon_name("document-edit-symbolic", Gtk.IconSize.BUTTON))
+    reminder_button.get_style_context().add_class("flat")
+    reminder_button.set_tooltip_text("Session reminder")
+    reminder_button.get_accessible().set_name("Session reminder")
+    brand.pack_end(reminder_button, False, False, 0)
+    about_button = Gtk.Button()
+    about_button.set_image(Gtk.Image.new_from_icon_name("dialog-information-symbolic", Gtk.IconSize.BUTTON))
+    about_button.get_style_context().add_class("flat")
+    about_button.set_tooltip_text("About Agent Orchestration Setup")
+    about_button.get_accessible().set_name("About Agent Orchestration Setup")
+    brand.pack_end(about_button, False, False, 0)
+
+    def show_about(_button):
+        dialog = Gtk.AboutDialog(transient_for=win, modal=True)
+        dialog.set_program_name("Agent Orchestration Setup")
+        dialog.set_version(source_version())
+        dialog.set_comments(ABOUT_TEXT)
+        dialog.set_website(REPO_URL)
+        dialog.set_website_label("GitHub repository and setup guide")
+        try:
+            logo = GdkPixbuf.Pixbuf.new_from_file_at_scale(icon_path, 80, 80, True)
+        except GLib.Error:
+            pass
+        else:
+            dialog.set_logo(logo)
+        dialog.run()
+        dialog.destroy()
+
+    about_button.connect("clicked", show_about)
+    left.pack_start(brand, False, False, 9)
+    keys_group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+    left.pack_start(keys_group, False, False, 0)
+    left.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 4)
+    project_label = Gtk.Label(label="Project folder", xalign=0)
+    project_label.get_style_context().add_class("aa-caption")
+    left.pack_start(project_label, False, False, 0)
+    chooser = Gtk.FileChooserButton.new("Select a project folder", Gtk.FileChooserAction.SELECT_FOLDER)
+    project_label.set_mnemonic_widget(chooser)
+    if Path.cwd() != Path.home():
+        chooser.set_filename(str(Path.cwd()))
+    left.pack_start(chooser, False, False, 3)
+    active_folder = Gtk.Label(xalign=0, wrap=True)
+    active_folder.set_max_width_chars(26)
+    active_folder.set_no_show_all(True)
+    active_folder.get_style_context().add_class("aa-caption")
+    left.pack_start(active_folder, False, False, 0)
+
+    right = Gtk.Stack()
+    layout.pack_start(right, True, True, 0)
+    empty = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+    empty.set_halign(Gtk.Align.CENTER)
+    empty.set_valign(Gtk.Align.CENTER)
+    empty_title = Gtk.Label()
+    empty_title.set_markup("<big><b>Choose a session</b></big>")
+    empty.pack_start(empty_title, False, False, 0)
+    empty.pack_start(Gtk.Label(label="First run: save your API key, then select Pi, DSH CLI or DSH Web.", wrap=True), False, False, 0)
+    empty.pack_start(Gtk.Label(label="No Claude or Codex account is required.", wrap=True), False, False, 0)
+    open_keys = Gtk.Button(label="Open API keys")
+    empty.pack_start(open_keys, False, False, 6)
+    local_faq = Gtk.Button(label="Frequently asked questions")
+    empty.pack_start(local_faq, False, False, 0)
+
+    def show_local_faq(_button):
+        try:
+            content = (ROOT / "docs/sss.md").read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            content = "Could not open the local help file. Use the GitHub link below."
+        dialog = Gtk.Dialog(title="Frequently asked questions", transient_for=win, modal=True)
+        dialog.set_default_size(640, 460)
+        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
+        scroll = Gtk.ScrolledWindow()
+        view = Gtk.TextView(editable=False, wrap_mode=Gtk.WrapMode.WORD_CHAR)
+        view.set_left_margin(14)
+        view.set_right_margin(14)
+        view.set_top_margin(10)
+        view.get_buffer().set_text(content)
+        scroll.add(view)
+        area = dialog.get_content_area()
+        area.pack_start(scroll, True, True, 0)
+        area.pack_start(Gtk.LinkButton.new_with_label(FAQ_URL, "Open on GitHub"), False, False, 4)
+        dialog.show_all()
+        dialog.run()
+        dialog.destroy()
+
+    local_faq.connect("clicked", show_local_faq)
+    right.add_named(empty, "start")
+    install_pi_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+    install_pi_page.pack_start(Gtk.Label(label="Pi was not found on this computer."), False, False, 0)
+    install_detail = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER)
+    install_pi_page.pack_start(install_detail, False, False, 0)
+    install_pi_action = Gtk.Button(label="Install Pi")
+    install_pi_page.pack_start(install_pi_action, False, False, 0)
+    install_pi_page.pack_start(Gtk.LinkButton.new_with_label(PI_GUIDE, "Official Pi setup guide"), False, False, 0)
+    right.add_named(install_pi_page, "pi-install")
+    evren_setup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
+                         halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+    evren_setup.pack_start(Gtk.Label(label="Provider: EVREN · Model: DeepSeek V4.1 Flash"), False, False, 0)
+    evren_detail = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER)
+    evren_setup.pack_start(evren_detail, False, False, 0)
+    install_dsh_action = Gtk.Button(label="Install dsh")
+    evren_setup.pack_start(install_dsh_action, False, False, 0)
+    open_evren_key = Gtk.Button(label="Open EVREN API key settings")
+    evren_setup.pack_start(open_evren_key, False, False, 0)
+    evren_setup.pack_start(Gtk.LinkButton.new_with_label(DSH_GUIDE, "Official dsh guide"), False, False, 0)
+    right.add_named(evren_setup, "evren-setup")
+    pages = {}
+    running = set()
+    session_modes = {}
+
+    def row_session(role):
+        return resolve_session(tmux_role(role), session_modes.get(role, "normal"))
+    dots = {}
+    timers = {}
+    controls = []
+    selected = None
+    selected_role = None
+
+    def show_session_folder(role):
+        target = row_session(role)[2] if role else None
+        path = session_pane_path(target)
+        if path is None:
+            active_folder.hide()
+            return
+        chosen = chooser.get_filename()
+        different = chosen and os.path.realpath(chosen) != os.path.realpath(path)
+        folder_name = Path(path).name or "/"
+        active_folder.set_text(("Open session in another folder: " if different else "Open session: ")
+                               + folder_name)
+        active_folder.set_tooltip_text(path)
+        active_folder.show()
+
+    chooser.connect("file-set", lambda *_: show_session_folder(selected_role))
+
+    def select_button(button):
+        nonlocal selected, selected_role
+        if selected is not None:
+            selected.get_style_context().remove_class("aa-selected")
+        if button is not None:
+            button.get_style_context().add_class("aa-selected")
+        selected = button
+        selected_role = next((role for role, item in buttons_by_role.items() if item is button), None)
+        show_session_folder(selected_role)
+
+    buttons_by_role = {}
+
+    def indicate(role, state):
+        color, detail = STATES[state]
+        dot = dots[role]
+        dot.set_markup(f'<span foreground="{color}">●</span>')
+        dot.set_tooltip_text(detail)
+
+    def clear_activity_timer(role):
+        pending = timers.pop(role, None)
+        if pending is not None:
+            GLib.source_remove(pending)
+
+    def terminal_activity(_terminal, role):
+        if role not in running:
+            return
+        indicate(role, "active")
+        clear_activity_timer(role)
+
+        def wake():
+            timers.pop(role, None)
+            if role in running:
+                indicate(role, "ready")
+            return GLib.SOURCE_REMOVE
+
+        timers[role] = GLib.timeout_add(900, wake)
+
+    def process_closed(role):
+        running.discard(role)
+        if selected_role == role:
+            active_folder.hide()
+        clear_activity_timer(role)
+        indicate(role, "closed")
+    status = Gtk.Label(xalign=0, wrap=True)
+    status.get_style_context().add_class("aa-caption")
+    status.set_max_width_chars(25)
+
+    def show_reminder(_button):
+        text = session_reminder(atolye_sessions())
+        dialog = Gtk.Dialog(title="Session reminder", transient_for=win, modal=True)
+        dialog.set_default_size(540, 385)
+        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
+        dialog.add_button("Copy to clipboard", Gtk.ResponseType.OK)
+        area = dialog.get_content_area()
+        area.set_border_width(14)
+        area.set_spacing(8)
+        note = Gtk.Label(label="Copy this note and paste it into an agent chat. It does not change the open session's system settings.",
+                         xalign=0, wrap=True)
+        area.pack_start(note, False, False, 0)
+        scroll = Gtk.ScrolledWindow()
+        view = Gtk.TextView(editable=False, wrap_mode=Gtk.WrapMode.WORD_CHAR)
+        view.set_left_margin(8)
+        view.set_right_margin(8)
+        view.get_buffer().set_text(text)
+        scroll.add(view)
+        area.pack_start(scroll, True, True, 0)
+        dialog.show_all()
+        if dialog.run() == Gtk.ResponseType.OK:
+            clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+            clipboard.set_text(text, -1)
+            clipboard.store()
+            status.set_text("Session reminder copied.")
+        dialog.destroy()
+
+    reminder_button.connect("clicked", show_reminder)
+
+    def choose_setup_mode(setup=False):
+        if not setup:
+            return "normal", None
+        dialog = Gtk.MessageDialog(
+            transient_for=win, modal=True, message_type=Gtk.MessageType.QUESTION,
+            text="Which installed tools do you want to verify?")
+        dialog.set_title("Verification options")
+        dialog.format_secondary_text(
+            "The agent keeps its normal permission checks and verifies only the tools you select. "
+            "It reports first and makes no changes without your approval.")
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Verify", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.CANCEL)
+        group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        group.set_margin_top(12)
+        pi = Gtk.CheckButton(label="Pi")
+        evren = Gtk.CheckButton(label="DSH (CLI and Web)")
+        for item in (pi, evren):
+            group.pack_start(item, False, False, 0)
+        dialog.get_message_area().pack_start(group, False, False, 0)
+
+        def update_choices(*_):
+            dialog.set_response_sensitive(Gtk.ResponseType.OK, pi.get_active() or evren.get_active())
+
+        pi.connect("toggled", update_choices)
+        evren.connect("toggled", update_choices)
+        update_choices()
+        group.show_all()
+        response = dialog.run()
+        selected = (pi.get_active(), evren.get_active())
+        selection = {(True, False): "pi", (False, True): "evren", (True, True): "both"}.get(selected)
+        dialog.destroy()
+        return ("normal", selection) if response == Gtk.ResponseType.OK and selection else (None, None)
+
+    def choose_work_mode():
+        dialog = Gtk.MessageDialog(transient_for=win, modal=True,
+                                   message_type=Gtk.MessageType.QUESTION,
+                                   text="New session permissions")
+        dialog.format_secondary_text("Normal mode keeps the agent's permission checks enabled.")
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Full access…", Gtk.ResponseType.APPLY)
+        dialog.add_button("Open in normal mode", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        response = dialog.run()
+        dialog.destroy()
+        if response == Gtk.ResponseType.OK:
+            return "normal"
+        if response != Gtk.ResponseType.APPLY:
+            return None
+        caution = Gtk.MessageDialog(transient_for=win, modal=True,
+                                    message_type=Gtk.MessageType.WARNING,
+                                    text="Open this session with full access?")
+        caution.format_secondary_text(
+            "This skips the agent's permission prompts. Codex also disables its sandbox. "
+            "The agent can access the same files and commands as your account. "
+            "Use this only in a trusted, isolated environment. "
+            "This choice is not saved and does not affect verification sessions.")
+        caution.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        caution.add_button("I understand the risk; open with full access", Gtk.ResponseType.OK)
+        caution.set_default_response(Gtk.ResponseType.CANCEL)
+        approved = caution.run() == Gtk.ResponseType.OK
+        caution.destroy()
+        return "full" if approved else None
+
+    def confirm_pi_folder(folder):
+        dialog = Gtk.MessageDialog(
+            transient_for=win, modal=True, message_type=Gtk.MessageType.WARNING,
+            text="Open Pi only in a folder you trust")
+        dialog.set_title("Trusted folder for Pi")
+        dialog.format_secondary_text(f"{folder}\n\n{PI_TRUST_NOTICE}")
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Open in this folder", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.CANCEL)
+        accepted = dialog.run() == Gtk.ResponseType.OK
+        dialog.destroy()
+        return accepted
+
+    def install_tool(button, provider):
+        is_pi = provider == "pi"
+        title = "Pi" if is_pi else "dsh"
+        action = install_pi_action if is_pi else install_dsh_action
+        detail = install_detail if is_pi else evren_detail
+        page = install_pi_page if is_pi else evren_setup
+        version = "22.19" if is_pi else "24.9"
+        command = pi_install_command() if is_pi else dsh_install_command()
+        if not command:
+            detail.set_text(f"Node.js {version} or later and npm are required. Start with the guide below.")
+            action.set_sensitive(False)
+            return
+        action.set_sensitive(False)
+        detail.set_text(f"Installing {title}… Your API keys are not used during installation.")
+        try:
+            # npm should not inherit app credentials or project-specific settings.
+            env = {k: os.environ[k] for k in ("PATH", "LANG", "LC_ALL", "TMPDIR") if k in os.environ}
+            workdir = tempfile.TemporaryDirectory()
+            env["HOME"] = workdir.name
+            child = subprocess.Popen(command, cwd=workdir.name, env=env, stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            detail.set_text("Could not start installation. Use the manual setup guide below.")
+            action.set_sensitive(True)
+            return
+
+        def check_install():
+            result = child.poll()
+            if result is None:
+                return GLib.SOURCE_CONTINUE
+            ready = result == 0 and installed_package_ready(
+                pi_prefix() if is_pi else dsh_prefix(), "pi" if is_pi else "dsh",
+                PI_PACKAGE if is_pi else DSH_PACKAGE, env)
+            workdir.cleanup()
+            action.set_sensitive(True)
+            if ready:
+                status.set_text("Pi is installed. Select Pi to open it." if is_pi else "dsh is installed. Select DSH CLI or DSH Web to open it.")
+                if right.get_visible_child() is page:
+                    right.set_visible_child(empty)
+            else:
+                detail.set_text("Installation did not complete. Use the manual setup guide or try again.")
+            return GLib.SOURCE_REMOVE
+
+        GLib.timeout_add(220, check_install)
+
+    install_pi_action.connect("clicked", install_tool, "pi")
+    install_dsh_action.connect("clicked", install_tool, "dsh")
+
+    def open_session(button, role):
+        if role in pages and role in running:
+            select_button(button)
+            right.set_visible_child(pages[role])
+            status.set_text("Returned to the open session. The verification prompt was not sent automatically. You can copy it from the README."
+                            if role.startswith("setup-") else
+                            f"Full access · {TMUX_FULL[role]}" if session_modes.get(role) == "full"
+                            else button.get_label())
+            pages[role].get_child().grab_focus()
+            return
+        if role in ("evren", "evren-cli") and not smoke_terminal:
+            state = key_file_status()["EVREN_API_KEY"]
+            binary = dsh_binary() if state == "Saved" else None
+            # Do not launch a different global version against the pinned profile.
+            try:
+                version = subprocess.check_output([binary, "--version"], text=True, timeout=1.5,
+                                                  stderr=subprocess.DEVNULL).strip() if binary else ""
+            except (OSError, subprocess.SubprocessError):
+                version = ""
+            if state != "Saved" or version != "0.2.2-rc.5":
+                select_button(button)
+                right.set_visible_child(evren_setup)
+                install_dsh_action.set_visible(state == "Saved" and version != "0.2.2-rc.5")
+                open_evren_key.set_visible(state != "Saved")
+                if install_dsh_action.get_sensitive():
+                    evren_detail.set_text("Save your EVREN API key first." if state != "Saved" else
+                                          "Install dsh, then select the DSH session you want to open.")
+                return
+        if role == "pi" and not pi_binary():
+            select_button(button)
+            right.set_visible_child(install_pi_page)
+            if install_pi_action.get_sensitive():
+                install_detail.set_text("Claude and Codex are not required. Installation is for this user only.")
+            return
+        if role == "pi" and not shutil.which("tmux"):
+            status.set_text("Install tmux with your system package manager before opening Pi.")
+            return
+        agent = agent_for(role)
+        tmux_target = tmux_role(role)
+        attachment, selected_name, identified = resolve_session(tmux_target)
+        if attachment == "blocked":
+            status.set_text(("The primary and reserved names both belong to other sessions. "
+                             if agent else "Could not verify this session as part of Agent Orchestration Setup. ") +
+                            "Not connected. Existing sessions were left unchanged.")
+            return
+        existing = attachment == "trusted"
+        setup = role in ("setup-claude", "setup-codex")
+        folder = chooser.get_filename() or (str(Path.home()) if setup or existing or smoke_terminal or role in ("evren", "terminal") else None)
+        if not folder or not Path(folder).is_dir():
+            status.set_text("Choose a project folder on the left.")
+            chooser.grab_focus()
+            return
+        if agent and not existing and not shutil.which(agent):
+            status.set_text(f"{agent.capitalize()} was not found. Select Pi to get started.")
+            return
+        if role == "pi" and not existing and not smoke_terminal:
+            if not confirm_pi_folder(folder):
+                status.set_text("Pi was not opened.")
+                return
+        mode, setup_selection = ("existing", None) if existing else (
+            choose_setup_mode(setup=setup) if agent else ("normal", None))
+        if mode is None:
+            return
+        if agent and not setup and not existing:
+            mode = choose_work_mode()
+            if mode is None:
+                return
+            if mode == "full":
+                full_state, selected_name, _ = resolve_session(agent, "full")
+                if full_state == "blocked":
+                    status.set_text(f"{selected_name} belongs to another session. It was left unchanged.")
+                    return
+        session_modes[role] = "full" if mode == "full" else "normal"
+        if role in pages:
+            right.remove(pages.pop(role))
+        terminal = Vte.Terminal()
+        terminal.set_scrollback_lines(5000)
+        select_button(button)
+        scroller = Gtk.ScrolledWindow()
+        scroller.add(terminal)
+        pages[role] = scroller
+        right.add_named(scroller, role)
+        scroller.show_all()
+        right.set_visible_child(scroller)
+        terminal.grab_focus()
+        running.add(role)
+        label = button.get_label()
+        status.set_text("Returning to the open session. The verification prompt was not sent automatically. You can copy it from the README."
+                        if existing and role.startswith("setup-")
+                        else label)
+        if mode == "full":
+            status.set_text(f"Full access · {selected_name}")
+        elif attachment == "alternate":
+            status.set_text(f"The primary name belongs to another session and was left unchanged. Setup session: {selected_name}.")
+        elif existing and selected_name in TMUX_ALTERNATES.values():
+            status.set_text(f"Returning to the setup session {selected_name}. The verification prompt was not sent automatically.")
+        terminal.connect("child-exited", lambda *_: process_closed(role))
+        terminal.connect("contents-changed", terminal_activity, role)
+        terminal_activity(terminal, role)
+
+        def spawned(_terminal, _pid, error, *_):
+            if error:
+                status.set_text("Could not open the session.")
+                process_closed(role)
+            elif tmux_target:
+                def refresh_folder():
+                    if selected_role == role and role in running:
+                        show_session_folder(role)
+                    return GLib.SOURCE_REMOVE
+                GLib.timeout_add(320, refresh_folder)
+        if role == "evren":
+            folder = str(Path.home())
+        expected_id = identified[1] if identified and (agent or role == "pi") else None
+        command = note_shell("Test terminal") if smoke_terminal and role == "evren" else (
+            session_command(role, mode, setup_selection, session_id=expected_id))
+        terminal.spawn_async(Vte.PtyFlags.DEFAULT, folder, command, None,
+                             GLib.SpawnFlags.DEFAULT, None, None, -1, None, spawned, None)
+
+    def close_session(_button, role, label):
+        agent = tmux_role(role)
+        _, resolved_name, target = row_session(role)
+        if role not in running and not target:
+            status.set_text("No open session to close.")
+            if role in pages:
+                right.remove(pages.pop(role))
+            return
+        name = resolved_name if target else label
+        dialog = Gtk.MessageDialog(transient_for=win, modal=True,
+                                   message_type=Gtk.MessageType.WARNING,
+                                   text=f"Close {name}?")
+        dialog.format_secondary_text("Closing this session may stop its running jobs.")
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Close session", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.CANCEL)
+        response = dialog.run()
+        dialog.destroy()
+        if response != Gtk.ResponseType.OK:
+            return
+        if target:
+            if row_session(role)[1:] != (resolved_name, target):
+                status.set_text("The session changed. No session was closed.")
+                return
+            try:
+                result = subprocess.run([target[0], "kill-session", "-t", target[1]],
+                                        capture_output=True, timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                status.set_text("Could not close the tmux session.")
+                return
+            if result.returncode:
+                status.set_text("Could not close the tmux session.")
+                return
+        permission = session_modes.get(role, "normal")
+        roles = ([item for _, item in OPTIONS if tmux_role(item) == agent
+                  and session_modes.get(item, "normal") == permission] if target else [role])
+        for item in roles:
+            page = pages.pop(item, None)
+            process_closed(item)
+            if page is not None:
+                page.destroy()
+        if not right.get_visible_child():
+            right.set_visible_child(empty)
+        if right.get_visible_child() is empty:
+            select_button(None)
+        status.set_text(f"Closed {name}.")
+
+    key_buttons = {}
+    key_dots = {}
+
+    def key_state_color(label, state):
+        fg = label.get_style_context().get_color(Gtk.StateFlags.NORMAL)
+        dark = 0.2126 * fg.red + 0.7152 * fg.green + 0.0722 * fg.blue > 0.55
+        if state == "Saved":
+            return "#62DEA0" if dark else "#087546"
+        if state == "Unreadable":
+            return "#F5BE64" if dark else "#8A5600"
+        return None
+
+    def style_key_state(label, state, name=None, dot=False):
+        color = key_state_color(label, state)
+        if dot:
+            color = color or "#343943"
+            label.set_markup(f'<span foreground="{color}">●</span>')
+            label.set_tooltip_text(f"{name} API key: {state}")
+        else:
+            status_text = GLib.markup_escape_text(state)
+            if color:
+                status_text = f'<span foreground="{color}" weight="semibold">{status_text}</span>'
+            prefix = f"{GLib.markup_escape_text(name)}: " if name else ""
+            label.set_markup(prefix + status_text)
+
+    def update_key_buttons():
+        for variable, state in key_file_status().items():
+            if variable in key_buttons:
+                name = PROVIDERS[variable][0]
+                description = f"{name} API key: {state}"
+                key_buttons[variable].set_tooltip_text(description)
+                key_buttons[variable].get_accessible().set_description(description)
+                style_key_state(key_dots[variable], state, name, dot=True)
+
+    def key_settings(_button, variable):
+        name, _ = PROVIDERS[variable]
+        dialog = Gtk.Dialog(title=f"{name} API key", transient_for=win, modal=True)
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Save", Gtk.ResponseType.OK)
+        area = dialog.get_content_area()
+        area.set_spacing(10)
+        area.set_border_width(16)
+        detail = ("Only passed to Pi sessions launched from this app." if name == "NVIDIA" else
+                  "Only used by DSH CLI and DSH Web.")
+        text = Gtk.Label(label="The key is stored in a local .env file outside your project.\n" + detail, xalign=0)
+        entry = Gtk.Entry(visibility=False)
+        entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+        entry.set_placeholder_text("nvapi-…" if name == "NVIDIA" else "EVREN API key")
+        entry.set_activates_default(True)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        warning = Gtk.Label(xalign=0)
+        saved_state = Gtk.Label(xalign=0)
+        style_key_state(saved_state, key_file_status()[variable])
+        if name == "NVIDIA":
+            area.pack_start(Gtk.LinkButton.new_with_label(
+                "https://build.nvidia.com/moonshotai/kimi-k3_1-pro", "Get an NVIDIA API key"), False, False, 0)
+        help_link = Gtk.LinkButton.new_with_label(FAQ_URL, "Help saving an API key")
+        for widget in (text, saved_state, entry, warning, help_link):
+            area.pack_start(widget, False, False, 0)
+        dialog.show_all()
+        while dialog.run() == Gtk.ResponseType.OK:
+            try:
+                save_key(entry.get_text().strip(), variable)
+            except ValueError as exc:
+                warning.set_text(str(exc))
+            except OSError:
+                warning.set_text("Could not write the settings file. If the status is Unreadable, see the help below.")
+            else:
+                status.set_text(f"Saved the {name} API key.")
+                update_key_buttons()
+                break
+        entry.set_text("")
+        dialog.destroy()
+
+    icon_settings = session_icons()
+
+    def choose_icon(button, role, default):
+        dialog = Gtk.Dialog(title="Change icon", transient_for=win, modal=True)
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Reset to default", Gtk.ResponseType.REJECT)
+        area = dialog.get_content_area()
+        area.set_border_width(16)
+        grid = Gtk.Grid(row_spacing=8, column_spacing=8)
+        area.add(grid)
+        for index, (label, icon) in enumerate(ICONS):
+            item = Gtk.Button()
+            item.set_tooltip_text(label)
+            item.get_accessible().set_name(label)
+            image = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.DIALOG)
+            image.set_pixel_size(24)
+            item.set_image(image)
+            item.set_size_request(52, 46)
+            item.connect("clicked", lambda _item, response: dialog.response(response), 1000 + index)
+            grid.attach(item, index % 3, index // 3, 1, 1)
+        dialog.show_all()
+        response = dialog.run()
+        dialog.destroy()
+        if response == Gtk.ResponseType.REJECT:
+            icon = None
+        elif 1000 <= response < 1000 + len(ICONS):
+            icon = ICONS[response - 1000][1]
+        else:
+            return
+        try:
+            save_session_icon(role, icon)
+        except OSError:
+            status.set_text("Could not save the icon.")
+            return
+        set_row_icon(button, icon or default)
+
+    def copy_session_identity(_item, role):
+        agent = tmux_role(role)
+        _, identity, target = row_session(role)
+        if not target:
+            status.set_text("The session is closed. Open it first.")
+            return
+        clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+        clipboard.set_text(identity, -1)
+        clipboard.store()
+        path = session_pane_path(target)
+        suffix = f" · {Path(path).name or '/'}" if path else ""
+        status.set_text(f"Copied {identity} to the clipboard{suffix}.")
+        status.set_tooltip_text(path)
+
+    def icon_menu(button, event, role, default):
+        menu = Gtk.Menu()
+        menu.attach_to_widget(button, None)
+        item = Gtk.MenuItem(label="Change icon")
+        item.connect("activate", lambda *_: choose_icon(button, role, default))
+        menu.append(item)
+        agent = tmux_role(role)
+        copy = Gtk.MenuItem(label="Copy session ID")
+        target = row_session(role)[2]
+        copy.set_sensitive(bool(target))
+        if target:
+            path = session_pane_path(target)
+            if path:
+                copy.set_tooltip_text("Open pane folder: " + path)
+        else:
+            copy.set_tooltip_text("Open the session first." if agent else "This row does not have a tmux session ID.")
+        copy.connect("activate", copy_session_identity, role)
+        menu.append(copy)
+        menu.connect("selection-done", lambda *_: menu.destroy())
+        menu.show_all()
+        if event is None:
+            menu.popup_at_widget(button, Gdk.Gravity.SOUTH_WEST, Gdk.Gravity.NORTH_WEST, None)
+        else:
+            menu.popup_at_pointer(event)
+        return True
+
+    def right_click(button, event, role, default):
+        if event.button != 3:
+            return False
+        return icon_menu(button, event, role, default)
+
+    for index, (label, role) in enumerate(OPTIONS):
+        if index == 2:
+            left.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 4)
+        default = "system-run-symbolic" if index < 2 else "utilities-terminal-symbolic"
+        button = row_button(label, icon_settings.get(role, default), setup=index < 2)
+        buttons_by_role[role] = button
+        button.connect("clicked", open_session, role)
+        button.connect("button-press-event", right_click, role, default)
+        button.connect("popup-menu", lambda widget, r, d: icon_menu(widget, None, r, d), role, default)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        dot = Gtk.Label()
+        dots[role] = dot
+        indicate(role, "closed")
+        close = Gtk.Button(label="×")
+        close.get_style_context().add_class("aa-close")
+        close.set_tooltip_text(f"{label}: close session")
+        close.get_accessible().set_name(f"{label}: close session")
+        close.set_relief(Gtk.ReliefStyle.NONE)
+        close.connect("clicked", close_session, role, label)
+        row.pack_start(button, True, True, 0)
+        row.pack_start(close, False, False, 0)
+        row.pack_start(dot, False, False, 0)
+        left.pack_start(row, False, False, 0)
+        controls.append(button)
+    left.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 4)
+
+
+    for variable, (name, _) in PROVIDERS.items():
+        button = row_button(f"{name} API key", "dialog-password-symbolic")
+        button.connect("clicked", key_settings, variable)
+        key_buttons[variable] = button
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        dot = Gtk.Label()
+        key_dots[variable] = dot
+        row.pack_start(button, True, True, 0)
+        row.pack_start(dot, False, False, 0)
+        keys_group.pack_start(row, False, False, 0)
+        controls.append(button)
+
+    open_evren_key.connect("clicked", key_settings, "EVREN_API_KEY")
+    update_key_buttons()
+
+    def show_key_file(_button):
+        dialog = Gtk.Dialog(title="API keys", transient_for=win, modal=True)
+        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
+        dialog.add_button("Edit NVIDIA key", 1001)
+        dialog.add_button("Edit EVREN key", 1002)
+        area = dialog.get_content_area()
+        area.set_spacing(8)
+        area.set_border_width(16)
+        description = Gtk.Label(label="The app uses this file. You do not need to create a .env file in your project.", xalign=0, wrap=True)
+        file_path = Gtk.Label(label=str(config_dir() / ".env"), xalign=0, selectable=True)
+        for widget in (description, file_path):
+            area.pack_start(widget, False, False, 0)
+        for variable, state in key_file_status().items():
+            label = Gtk.Label(xalign=0)
+            style_key_state(label, state, PROVIDERS[variable][0])
+            area.pack_start(label, False, False, 0)
+        dialog.show_all()
+        response = dialog.run()
+        dialog.destroy()
+        target = {1001: "NVIDIA_API_KEY", 1002: "EVREN_API_KEY"}.get(response)
+        if target:
+            key_buttons[target].clicked()
+
+    open_keys.connect("clicked", show_key_file)
+    button = row_button("API keys (.env)", "dialog-password-symbolic")
+    button.connect("clicked", show_key_file)
+    left.pack_start(button, False, False, 0)
+    controls.append(button)
+    legend = Gtk.Label(xalign=0, wrap=True)
+    legend.set_markup('● Closed    <span foreground="#36a86b">●</span> Open\n'
+                      '<span foreground="#3987f7">●</span> Terminal activity')
+    legend.get_style_context().add_class("aa-caption")
+    left.pack_end(legend, False, False, 5)
+    left.pack_start(status, False, False, 10)
+    win.show_all()
+    return win, controls, right
+
+
+def main():
+    if sys.argv[1:] == ["--version"]:
+        print(source_version())
+        return 0
+    if sys.argv[1:] == ["--pi-terminal"]:
+        return pi_terminal()
+    if sys.argv[1:2] == ["--pi-tmux"] and len(sys.argv) <= 3:
+        return pi_tmux(sys.argv[2] if len(sys.argv) == 3 else None)
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Vte", "2.91")
+        from gi.repository import Gtk, Vte, Gio, GLib
+    except (ImportError, ValueError):
+        print("Agent Orchestration Setup requires Python GI, GTK 3 and VTE 2.91.", file=sys.stderr)
+        return 1
+    GLib.set_prgname("ajan-atolyesi")
+    if not Gtk.init_check()[0]:
+        print("Open the app in a graphical desktop session.", file=sys.stderr)
+        return 1
+    smoke = sys.argv[1:] == ["--check-terminal"]
+    window, controls, stack = make_window(Gtk, Vte, Gio, GLib, smoke_terminal=smoke)
+    if sys.argv[1:] in (["--check-ui"], ["--check-terminal"]):
+        assert [w.get_label() for w in controls] == [name for name, _ in OPTIONS] + ["NVIDIA API key", "EVREN API key", "API keys (.env)"]
+        for button in controls[:len(OPTIONS)]:
+            row = button.get_parent().get_children()
+            assert row[0] is button and row[1].get_label() == "×" and isinstance(row[2], Gtk.Label)
+            assert button.get_style_context().has_class("aa-row")
+            assert button.get_image().get_margin_end() == 8
+        keys_group = controls[len(OPTIONS)].get_parent().get_parent()
+        rows = [item.get_children() for item in keys_group.get_children()]
+        assert [row[0].get_label() for row in rows] == ["NVIDIA API key", "EVREN API key"]
+        assert all(isinstance(row[1], Gtk.Label) and row[1].get_text() == "●" for row in rows)
+        assert keys_group.get_parent().get_children()[1] is keys_group
+        assert [role for _, role in OPTIONS[2:]] == ["codex", "claude", "pi", "evren-cli", "evren", "terminal"]
+        evren_button = controls[next(i for i, (_, role) in enumerate(OPTIONS) if role == "evren")]
+        if smoke:
+            evren_button.clicked()
+            terminal = stack.get_visible_child().get_child()
+            loop = GLib.MainLoop()
+            GLib.timeout_add(700, lambda: (loop.quit(), False)[1])
+            loop.run()
+            assert isinstance(terminal, Vte.Terminal) and terminal.get_pty() is not None
+        else:
+            evren_button.clicked()
+            assert stack.get_visible_child_name() in ("evren-setup", "evren")
+            assert evren_button.get_style_context().has_class("aa-selected")
+        window.hide()
+        print("GTK: session list and terminal pane verified.")
+        return 0
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

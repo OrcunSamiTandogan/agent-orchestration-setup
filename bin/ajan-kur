@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+set -euo pipefail
+here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+render_setup_prompt() {
+  local selection=$1
+  case "$selection" in pi|evren|both|ask) ;; *) return 2 ;; esac
+  cat "$here/../KURULUM-PROMPTU.md" || return
+  if [[ "$selection" == ask ]]; then
+    printf '\nNo selection was provided. Ask whether the user wants Pi, DSH, or both. Do not install anything until they answer.\n'
+    return
+  fi
+  printf '\nThe user has already made a selection. Do not ask again. Follow only the steps below.\n'
+  if [[ "$selection" == pi || "$selection" == both ]]; then
+    printf '%s\n' '- Pi: Node.js 22.19+, npm, and tmux. Check the installed tool with pi --version. For Pi versions and setup, see https://docs.pi.dev/latest/quickstart. Next: enter the NVIDIA API key, select Save, choose a project, and select Pi. tmux target: aa-pi.'
+  fi
+  if [[ "$selection" == evren || "$selection" == both ]]; then
+    printf '%s\n' '- DSH (CLI and Web): Node.js 24.9+ and npm. The CLI also requires tmux. Check the installed tool with dsh --version. For DSH versions and setup, see https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli. Next: enter the EVREN API key, select Save, then select DSH CLI or DSH Web. CLI tmux target: aa-evren-cli.'
+  fi
+}
+render_verify_prompt() {
+  local selection=$1
+  case "$selection" in pi|evren|both|ask) ;; *) return 2 ;; esac
+  cat "$here/../DOGRULAMA-PROMPTU.md" || return
+  if [[ "$selection" == pi || "$selection" == both ]]; then
+    printf '\n- Pi: `node -v` (22.19+), `npm -v`, `tmux -V`, `pi --version`. Target: aa-pi.\n'
+  fi
+  if [[ "$selection" == evren || "$selection" == both ]]; then
+    printf '\n- DSH CLI and DSH Web: `node -v` (24.9+), `npm -v`, `dsh --version`; for the CLI: `tmux -V`. CLI target: aa-evren-cli.\n'
+  fi
+}
+if [[ ${1:-} == --print-verification-prompt ]]; then
+  [[ $# == 2 ]] || exit 2
+  render_verify_prompt "$2"
+  exit
+fi
+if [[ ${1:-} == --print-setup-prompt ]]; then
+  [[ $# == 2 ]] || exit 2
+  render_setup_prompt "$2"
+  exit
+fi
+phase=attach
+if [[ ${1:-} == --pane ]]; then phase=pane; shift; fi
+case "${1:-}" in
+  claude) session=aa-claude; guide=https://code.claude.com/docs/en/setup ;;
+  codex) session=aa-codex; guide=https://learn.chatgpt.com/docs/auth ;;
+  *) printf 'Usage: ajan-kur {claude|codex} [normal|existing|full] [setup|plain] [pi|evren|both]\n'; exit 2 ;;
+esac
+mode=${2:-normal}
+case "$mode" in normal|existing|full) ;; *) exit 2 ;; esac
+if [[ "$phase" == pane ]]; then
+  [[ "$mode" != existing ]] || exit 2
+  status=0
+  flags=()
+  agent=$3
+  if [[ "$mode" == full ]]; then
+    [[ ${4:-} == plain && -z ${5:-} ]] || exit 2
+    case "$1" in
+      claude) flags+=(--dangerously-skip-permissions) ;;
+      codex) flags+=(--dangerously-bypass-approvals-and-sandbox) ;;
+    esac
+  fi
+  case "${4:-setup}" in
+    setup) prompt="$(render_verify_prompt "${5:-ask}")"; flags+=("$prompt") ;;
+    plain) [[ -z ${5:-} ]] || exit 2 ;;
+    *) exit 2 ;;
+  esac
+  "$agent" "${flags[@]}" || status=$?
+  printf '\nThe agent exited (status %s). The session is still open.\n' "$status"
+  exec /bin/bash --noprofile --norc -i
+fi
+hold() { exec /bin/bash --noprofile --norc -i; }
+owner=ajan-atolyesi-public-v1
+kind=${3:-setup}
+selection=${4:-}
+if [[ "$mode" == existing ]]; then
+  [[ "$kind" == plain ]] || exit 2
+  expected=$selection
+  [[ -z "$expected" || "$expected" =~ ^\$[0-9]+$ ]] || exit 2
+  selection=
+fi
+[[ "$mode" != full || "$kind" == plain ]] || exit 2
+case "$kind:$selection" in setup:|setup:pi|setup:evren|setup:both|plain:) ;; *) exit 2 ;; esac
+
+canonical=$session
+alternate=$canonical-atolye
+permission=normal
+if [[ "$mode" == full ]]; then permission=full; fi
+
+session_id() {
+  local exact=$1
+  local listed name id other found=''
+  listed="$(tmux list-sessions -F '#{session_name} #{session_id}' 2>/dev/null)" || return 1
+  while IFS=' ' read -r name id other; do
+    if [[ "$name" == "$exact" && "$id" =~ ^\$[0-9]+$ && -z "$other" ]]; then
+      [[ -z "$found" ]] || return 1
+      found=$id
+    fi
+  done <<< "$listed"
+  [[ -n "$found" ]] || return 1
+  printf '%s\n' "$found"
+}
+is_owned() {
+  local id=$1
+  [[ "$(tmux show-environment -t "$id" AA_ATOLYE_OWNER 2>/dev/null)" == "AA_ATOLYE_OWNER=$owner" ]] &&
+  [[ "$(tmux show-environment -t "$id" AA_SETUP_MODE 2>/dev/null)" == "AA_SETUP_MODE=$permission" ]]
+}
+resolve_session() {
+  local canonical_id alternate_id
+  if [[ "$permission" == full ]]; then
+    session=$canonical-tam
+    resolved_id="$(session_id "$session")" || resolved_id=
+    [[ -z "$resolved_id" ]] || is_owned "$resolved_id"
+    return
+  fi
+  canonical_id="$(session_id "$canonical")" || canonical_id=
+  alternate_id="$(session_id "$alternate")" || alternate_id=
+  session=$canonical
+  resolved_id=
+  if [[ -n "$canonical_id" ]] && is_owned "$canonical_id"; then
+    resolved_id=$canonical_id
+  elif [[ -n "$alternate_id" ]] && is_owned "$alternate_id"; then
+    session=$alternate
+    resolved_id=$alternate_id
+  elif [[ -n "$canonical_id" ]]; then
+    session=$alternate
+    [[ -z "$alternate_id" ]] || return 1
+  fi
+}
+attach_checked() {
+  local id
+  if ! id="$(session_id "$session")" || ! is_owned "$id" || [[ -n ${expected:-} && "$id" != "$expected" ]]; then
+    printf 'Could not verify that the existing %s session uses this permission mode. Not connected.\n' "$session" >&2
+    exit 1
+  fi
+  if [[ -n ${TMUX:-} ]]; then exec tmux switch-client -t "$id"; fi
+  exec tmux attach-session -t "$id"
+}
+if [[ "$mode" == existing ]]; then
+  command -v tmux >/dev/null || exit 1
+  if ! resolve_session || [[ -z "$resolved_id" ]]; then
+    printf 'No verified Agent Orchestration Setup session was found. Not connected.\n' >&2
+    exit 1
+  fi
+  attach_checked
+fi
+if ! command -v tmux >/dev/null; then
+  if [[ "$kind" == setup ]]; then
+    printf 'Could not open the verification session because tmux was not found. Nothing was installed. See the system setup guide in the README.\n' >&2
+    exit 1
+  fi
+  if ! command -v apt-get >/dev/null || ! command -v sudo >/dev/null; then
+    printf 'Install tmux using your system package manager, then select this button again.\n'
+    hold
+  fi
+  printf 'tmux is missing. Install it from the Ubuntu repositories? [y/N] '
+  read -r answer || exit 1
+  case "$answer" in y|Y|yes|Yes|e|E|evet|Evet) ;; *) exit 0 ;; esac
+  sudo apt-get install tmux || hold
+  hash -r
+fi
+if ! resolve_session; then
+  if [[ "$permission" == full ]]; then
+    printf '%s belongs to another session. Not connected. The session was left unchanged.\n' "$session" >&2
+  else
+    printf '%s and %s belong to other sessions. Not connected. Both sessions were left unchanged.\n' "$canonical" "$alternate" >&2
+  fi
+  exit 1
+fi
+if [[ -n "$resolved_id" ]]; then
+  expected=$resolved_id
+  attach_checked
+fi
+if ! agent=$(command -v "$1"); then
+  printf '%s was not found. Install the official tool first: %s\n' "$1" "$guide"
+  hold
+fi
+if [[ "$session" == "$alternate" ]]; then
+  printf '%s belongs to another session and was left unchanged. Agent Orchestration Setup target: %s.\n' "$canonical" "$session"
+fi
+if [[ -n ${TMUX:-} ]]; then
+  tmux new-session -d -s "$session" -c "$PWD" -e "AA_SETUP_MODE=$permission" -e "AA_ATOLYE_OWNER=$owner" "$here/ajan-kur" --pane "$1" "$mode" "$agent" "$kind" "$selection"
+  attach_checked
+fi
+exec tmux new-session -s "$session" -c "$PWD" -e "AA_SETUP_MODE=$permission" -e "AA_ATOLYE_OWNER=$owner" "$here/ajan-kur" --pane "$1" "$mode" "$agent" "$kind" "$selection"

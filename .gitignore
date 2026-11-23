@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Keep local session data and test artifacts out of Git.
+__pycache__/
+*.py[cod]
+*.log
+*.sqlite
+*.sqlite3
+credentials.json
+auth.json
+.DS_Store
+Thumbs.db

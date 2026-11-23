@@ -1,0 +1,7 @@
+You are checking Agent Orchestration Setup. This is not an installation request. Check only the selected paths. If no path is shown, ask whether to check Pi, DSH, or both.
+
+1. Verify without changing anything. Identify the operating system, the actual installed launcher, and whether each selected tool is on the PATH used by the installed app. Run the relevant local version checks. Do not close or alter an existing window or session. A source checkout or version number does not prove that the graphical interface or provider works.
+2. If anything is missing or incompatible, first report its current state and the exact next step. Do not install, update, or change files or settings on this verification pass. If the user later explicitly approves that specific repair, use ordinary permissions for the approved action only and then rerun the same checks. Do not bypass approval prompts.
+3. Do not request, read, print, store, or use keys. Do not read credential files, project .env files or full environment dumps. Do not run live provider or model tests. Do not message existing sessions, push, or publish anything.
+
+Report **Component | Status | Evidence**. Use **Already ready**, **Needs attention**, or **Not verified**; use **Repaired** only after an approved and verified repair. State whether you actually saw the app open. The live provider test is **Not attempted**. End with one exact next step, or say **No changes needed** if everything checked is compatible.
