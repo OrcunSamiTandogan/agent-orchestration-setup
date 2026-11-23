@@ -273,8 +273,11 @@ def open_browser(url):
             "XDG_RUNTIME_DIR", "XDG_CURRENT_DESKTOP", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
             "XDG_DATA_DIRS", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY",
         ) if name in os.environ}
-        subprocess.Popen([command, url], stdin=subprocess.DEVNULL,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=desktop_env)
+        opener = subprocess.Popen([command, url], stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=desktop_env)
+        # Catch a quick opener failure without waiting for a long-running browser.
+        return opener.wait(timeout=0.5) == 0
+    except subprocess.TimeoutExpired:
         return True
     except OSError:
         return False
@@ -298,7 +301,7 @@ def run_web(binary, patch, folder, env, *, launch_browser):
             if not shown and (url := browser_url(line)):
                 shown = True
                 if launch_browser and open_browser(url):
-                    print("Opened the official DeepSeek Harness in your browser. On first use, select Continue, then start a new session next to Default workspace. Press Ctrl+C to close.", flush=True)
+                    print("Requested that your browser open the official DeepSeek Harness. On first use, select Continue, then start a new session next to Default workspace. Press Ctrl+C to close.", flush=True)
                 elif not launch_browser:
                     print("DeepSeek Harness is ready.", flush=True)
                 else:

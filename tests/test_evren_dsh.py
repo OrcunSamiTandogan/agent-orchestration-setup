@@ -1,5 +1,8 @@
 import json
 import os
+import subprocess
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 import runpy
 import tempfile
@@ -52,6 +55,35 @@ class DshTests(unittest.TestCase):
                       good.replace("34567", "65536"), good + "&redirect=https://other.invalid",
                       good.replace("/?token", "/other?token"), good.split("?")[0]):
             self.assertIsNone(BRIDGE["browser_url"]("dsh web: " + wrong))
+
+    def test_browser_request_reports_immediate_failure_but_not_window_state(self):
+        open_browser = BRIDGE["open_browser"]
+        with patch("shutil.which", return_value="/fake/opener"), patch("subprocess.Popen") as start:
+            opener = start.return_value
+            opener.wait.return_value = 3
+            self.assertFalse(open_browser("http://127.0.0.1:34567/"))
+            opener.wait.assert_called_once_with(timeout=0.5)
+            opener.wait.return_value = 0
+            self.assertTrue(open_browser("http://127.0.0.1:34567/"))
+            opener.wait.side_effect = subprocess.TimeoutExpired("/fake/opener", 0.5)
+            self.assertTrue(open_browser("http://127.0.0.1:34567/"))
+            start.side_effect = OSError
+            self.assertFalse(open_browser("http://127.0.0.1:34567/"))
+
+    def test_web_reports_request_not_guaranteed_open_and_hides_session_url(self):
+        run_web = BRIDGE["run_web"]
+        url = "http://127.0.0.1:34567/?token=Abcd1234_5678-abcd"
+        for requested, status, message in ((True, 0, "Requested that your browser open"),
+                                            (False, 1, "Could not open the default browser")):
+            with self.subTest(requested=requested), patch("subprocess.Popen") as start, \
+                    patch.dict(run_web.__globals__, open_browser=lambda _: requested), redirect_stdout(StringIO()) as out:
+                proc = start.return_value
+                proc.stdout = StringIO("dsh web: " + url + "\n")
+                proc.wait.return_value = proc.poll.return_value = 0
+                self.assertEqual(run_web("/fake/dsh", Path("/tmp/patch"), Path("/tmp"), {},
+                                         launch_browser=True), status)
+                self.assertIn(message, out.getvalue())
+                self.assertNotIn(url, out.getvalue())
 
     def test_official_web_uses_ephemeral_loopback_only(self):
         cmd = BRIDGE["web_command"]("/fake/dsh", Path("/tmp/patch"))

@@ -1,8 +1,8 @@
 # Manual setup
 
-You do not need Claude Code or Codex. Pick **Pi and DSH**, **Pi only**, or **DSH only**, and skip the other sections. Start from the [platform-specific installer](../README.md#download-and-install) if you want the desktop app. When using the app, the tools can be installed from their respective rows and keys belong only in its masked local fields.
+You do not need the desktop app, Claude Code, or Codex to start learning. Install only the tool you want and try a small task in your terminal. Pick **Pi and DSH**, **Pi only**, or **DSH only**, and skip the other sections. Start from the [platform-specific installer](../README.md#download-and-install) if you want the desktop app. When using the app, the tools can be installed from their respective rows and keys belong only in its masked local fields.
 
-## Pi from a terminal
+## Pi with NVIDIA
 
 Install Pi from the [official quickstart](https://docs.pi.dev/latest/quickstart). Use Node.js 22.19+ for Pi, then confirm `pi --version`. Launch `pi`, select NVIDIA NIM through `/login`, and enter the key in Pi’s local key input, not the conversation. Use `/model` to choose a model. If you want a persistent terminal, start `tmux new-session -A -s aos-pi-manual` before launching Pi; press Ctrl+B then D to detach without ending the session.
 

@@ -27,15 +27,30 @@ codex mcp login agensi
 
 Complete sign-in in the browser and open Codex CLI. Do not paste an Agensi, NVIDIA, or EVREN token into the chat for this step. Read the browser authorization screen before you grant access. Agensi offers paid tools elsewhere, but this guide does not need them or any purchase.
 
+On Windows, run these commands and the connected assistant inside your Ubuntu WSL 2 distro if you want that assistant to handle the local setup. The desktop window needs WSLg.
+
+If you use another supported app, follow the matching entry in [Agensi’s connection guide](https://www.agensi.io/docs/mcp-setup). If you have neither Claude Code nor Codex installed locally, the guide can still point you to manual installation.
+
 ### Run the guide
 
 Find **Agent Orchestration Setup** on Agensi and select **Use this skill**, or paste this into the assistant you connected. Edit the operating system, assistant and route to match your computer:
 
 ```text
-Use the free Agensi skill "Agent Orchestration Setup". I use Ubuntu 24.04 and Codex CLI, and I want Pi only. Give me the correct setup prompt and a verification checklist. Do not install or run anything.
+Use the free Agensi skill "Agent Orchestration Setup". I use Ubuntu 24.04 and Codex CLI, and I want Pi only. Tell me which setup prompt to copy and give me a verification checklist. Do not install or run anything.
 ```
 
 If the assistant cannot find the listing, check whether it has been approved and published, confirm the right account is connected, or use Option B. The guide does not install software. It tells you which installer prompt to copy, where to paste it, and what to verify. See [Agensi's skill-use guide](https://www.agensi.io/docs/use-a-skill).
+
+## Test the guide without publishing
+
+The marketplace serves the skill only after approval. To rehearse the same guide while your listing is still a draft, save [the source SKILL.md](../agensi/SKILL.md) in a disposable project:
+
+| Assistant | Project-local path | Invoke as |
+|---|---|---|
+| Claude Code | `.claude/skills/agent-orchestration-setup/SKILL.md` | `/agent-orchestration-setup` |
+| Codex CLI | `.agents/skills/agent-orchestration-setup/SKILL.md` | `$agent-orchestration-setup` |
+
+Start the assistant in that project. Give it the OS, tool, and desktop or plain-terminal preference, and ask it not to install anything. Check that it sends you to the correct guide and does not ask for key values or claim to have installed anything. Testing it locally does not exercise the Agensi account, review or MCP delivery.
 
 ## Option B: Skip Agensi and use GitHub
 

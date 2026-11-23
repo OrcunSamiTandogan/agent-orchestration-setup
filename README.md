@@ -2,6 +2,14 @@
 
 Start Pi, DSH, Claude Code, Codex, or a plain terminal from one desktop window. Pi and DSH run independently. You do not need Claude Code or Codex to use them.
 
+## Start here
+
+**Already have Claude Code or Codex?** Choose one of the six prompts below. **Have neither?** Start with your [platform guide](#download-and-install). **Coming from Agensi?** The [guide skill](docs/agensi.md) helps pick the prompt; a desktop install still happens separately.
+
+**Want only Pi or DSH in your terminal?** You can [use either one without this desktop app](docs/manuel-kurulum.md). The standalone DSH example uses a direct DeepSeek key. For DSH with EVREN, use this project’s EVREN integration.
+
+Make sure the assistant is running on the computer where you want the app. On Windows, run the assistant **inside Ubuntu on WSL 2**, not in native PowerShell. macOS and Windows are preview routes.
+
 ## Set up with Claude Code or Codex
 
 The [EVREN](https://evren.ssyz.org.tr/) service is open to Turkish citizens and uses Türkiye’s e-Devlet identity verification ([university announcement](https://www.ktu.edu.tr/ofyazilim/duyuru/evren-platformu)). If you do not have EVREN access, choose **Pi only** and use NVIDIA instead.
@@ -118,17 +126,17 @@ Use normal permissions. Do not ask for, read, print, or test with my API keys. S
 1. Save only the key for the tool you chose, directly in the app's masked field. Do not paste keys into agent chats, commits, terminal commands, or project `.env` files.
 2. Choose a trusted project folder for **Pi** or **DSH CLI**, then open that row. **DSH Web** opens the official browser UI and has no tmux session.
 3. If prompted to install a missing tool, review the command and proceed with ordinary approvals. Pi requires Node.js 22.19+; DSH requires Node.js 24.9+. Check Node and npm in the app's own **Terminal**.
-4. If you choose to make a live request after setup, start with `Reply with HELLO. Do not change any files.` This sends text to your provider and may use your account quota.
+4. If you choose to make a live request after setup, start with `Reply with HELLO. Do not change any files.` This sends text to your provider and may use your account quota. If the app does not open, the key fails, or a tool is missing, use the [first-run checklist](docs/first-run.md) before reinstalling.
 
 Already installed? **Verify with Claude** and **Verify with Codex** check first and report. They are not installers. Review changes before approving any repair.
 
-[DSH details](docs/evren-dsh.md) · [FAQ](docs/sss.md) · [First Pi coding task](demo/GOREV.md) · [Contributing](CONTRIBUTING.md) · [Changes](CHANGELOG.md)
+[DSH details](docs/evren-dsh.md) · [FAQ](docs/sss.md) · [First Pi coding task](demo/GOREV.md) · [Contributing](CONTRIBUTING.md) · [Changes](CHANGELOG.md) · [Quality and improvement notes](docs/kalite.md)
 
 Already using the Turkish edition? Read the [shared installation and upstream note](UPSTREAM.md) before switching.
 
 ## Agensi companion
 
-The free Agensi guide is separate from the desktop app and does not run an installer. [How to use the skill with Claude Code or Codex](docs/agensi.md) · [Skill source](agensi/SKILL.md) · [Paste-ready listing answers](agensi-answers.md)
+The free Agensi guide is separate from the desktop app and does not run an installer. The Agensi route becomes usable after the marketplace approves and publishes the listing; the GitHub route is available now. [How to use the skill with Claude Code or Codex](docs/agensi.md) · [Skill source](agensi/SKILL.md) · [Paste-ready listing answers](agensi-answers.md)
 
 ## License and attribution
 

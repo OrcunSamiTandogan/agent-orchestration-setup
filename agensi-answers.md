@@ -44,7 +44,7 @@ The free skill provides instructions. It does not read your files, take your API
 
 The [EVREN](https://evren.ssyz.org.tr/) service is open to Turkish citizens and uses Türkiye’s e-Devlet identity verification ([university announcement](https://www.ktu.edu.tr/ofyazilim/duyuru/evren-platformu)). If you do not have EVREN access, choose **Pi only** and use NVIDIA instead.
 
-Ubuntu 24.04 is the reference Linux setup. macOS and Windows via WSL2 are preview routes. The desktop app and instructions are available directly from GitHub under the MIT license; Agensi is optional.
+Ubuntu 24.04 is the reference Linux setup. macOS and Windows via WSL2 are preview routes. The desktop app and instructions are available directly from GitHub under the MIT license; Agensi is optional. You can also follow the [terminal-only guide](https://github.com/OrcunSamiTandogan/agent-orchestration-setup/blob/master/docs/manuel-kurulum.md) and start with only Pi or standalone DSH. Standalone DSH uses a direct DeepSeek key in that example.
 ````
 
 ## 3. See it in action (demo)
@@ -52,25 +52,19 @@ Ubuntu 24.04 is the reference Linux setup. macOS and Windows via WSL2 are previe
 ### The request (what the buyer types)
 
 ```text
-I’m on Ubuntu 24.04. I already use Codex CLI and have an NVIDIA key. I only want Pi. Give me a setup plan and show me how to check that it worked. Do not run or install anything.
+On Ubuntu 24.04, I have NVIDIA access and want to learn Pi in a plain terminal. I do not have Claude Code or Codex installed on that target computer. Tell me where to start, without installing, running or changing anything.
 ```
 
 ### The result (what your agent delivers)
 
-This is the complete reply from a local rehearsal of the guide instructions. It is not a recording of the Agensi MCP and does not claim an installation or a provider call.
+Actual output from a Codex CLI session using the same project-local skill as the upload ZIP. This is a planning demonstration, not a recording of Agensi delivery, an installation, or a provider call.
 
 ```markdown
-**Your setup: Ubuntu 24.04 → Codex CLI → Pi only → NVIDIA.** Ubuntu 24.04 is the reference Linux setup. Codex helps with installation; Pi uses your existing NVIDIA key.
+Use the **Pi with NVIDIA** section of the manual setup guide. Ubuntu 24.04 is the reference Linux setup, and Pi runs directly in a plain terminal without Claude Code or Codex. Follow Pi’s local authentication instructions for your NVIDIA access. [Manual setup guide](https://github.com/OrcunSamiTandogan/agent-orchestration-setup/blob/master/docs/manuel-kurulum.md)
 
-1. Open the [English README](https://github.com/OrcunSamiTandogan/agent-orchestration-setup#readme), expand **Pi only**, and select the **Codex** box beneath it.
-2. Copy the entire prompt and paste it into Codex CLI running in a terminal on your computer. Keep normal tool permissions and review any installation prompts. When asked for your NVIDIA key, enter it locally in the app, never in chat.
+When you’re ready to try it later, `pi --version` checks the local CLI. For an optional model check that may use NVIDIA quota, run `pi -p "Reply with exactly one line: Hello from Pi."` A version number confirms the CLI responds. A model reply confirms the provider request worked.
 
-**Check that it worked:**
-- Open the workshop and read the setup report. Only Pi should be checked. Note whether it says installed, already present, skipped, or blocked.
-- Launch Pi and send a short test message. A reply checks the NVIDIA connection separately; an installed status doesn’t prove the connection works.
-- Try the [slug exercise](https://github.com/OrcunSamiTandogan/agent-orchestration-setup/blob/master/demo/GOREV.md). Look for two passing tests: one for normal slug formatting and one for converting Turkish characters.
-
-I haven’t run or installed anything.
+For now, open the manual guide and read the Pi with NVIDIA section.
 ```
 
 ## 4. Compatibility
@@ -131,7 +125,7 @@ If the optional section offers matching fields, use the following. Otherwise kee
 |---|---|
 | Output | Platform-specific setup plan, a matching install prompt link, and a short first-task checklist. |
 | Inputs | Operating system, Claude Code or Codex, and Pi, DSH, or both. No API keys. |
-| Version | 1.0.1 (guide skill, not desktop application version). |
+| Version | 1.0.2 (guide skill, not desktop application version). |
 | Source / repository | https://github.com/OrcunSamiTandogan/agent-orchestration-setup |
 | License | MIT. |
 

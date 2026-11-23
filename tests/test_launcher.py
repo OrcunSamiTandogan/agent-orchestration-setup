@@ -121,6 +121,78 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(Path(args[-1]).name, "evren-dsh-terminal")
         self.assertNotIn("EVREN_API_KEY", " ".join(args))
 
+    def test_dsh_session_is_verified_by_owner_and_mode_and_passes_id_to_shell(self):
+        resolver = APP["resolve_session"]
+        target = ("/fixture/tmux", "$8")
+        with patch.dict(resolver.__globals__, tmux_candidates=lambda: {"aa-evren-cli": target}):
+            with patch("subprocess.run", return_value=subprocess.CompletedProcess([], 1, "", "")):
+                self.assertEqual(resolver("evren-cli"), ("blocked", "aa-evren-cli", None))
+            def owned(args, **_):
+                self.assertEqual(args[:4], ["/fixture/tmux", "show-environment", "-t", "$8"])
+                value = {"AA_ATOLYE_OWNER": APP["PUBLIC_TMUX_OWNER"], "AA_SETUP_MODE": "normal"}[args[4]]
+                return subprocess.CompletedProcess(args, 0, f"{args[4]}={value}\n", "")
+            with patch("subprocess.run", side_effect=owned):
+                self.assertEqual(resolver("evren-cli"), ("trusted", "aa-evren-cli", target))
+        self.assertEqual(APP["session_command"]("evren-cli", "existing", session_id="$8")[-1], "$8")
+
+    def test_dsh_tmux_wrapper_verifies_identity_at_attach_and_preserves_collisions(self):
+        path = Path(__file__).resolve().parents[1] / "bin" / "ajan-dsh-pane"
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "tmux"
+            fake.write_text("""#!/bin/bash
+set -eu
+case "$1" in
+  list-sessions)
+    if [[ -e "$HOME/created" ]]; then
+      if [[ "$CASE" == replacement ]]; then printf 'aa-evren-cli $9\\n'; else printf 'aa-evren-cli $8\\n'; fi
+    elif [[ "$CASE" != creation && "$CASE" != replacement ]]; then
+      printf 'aa-evren-cli $8\\n'
+    fi
+    ;;
+  new-session)
+    [[ "$CASE" == creation || "$CASE" == replacement ]]
+    [[ " $* " == *" -e AA_ATOLYE_OWNER=ajan-atolyesi-public-v1 "* ]]
+    [[ " $* " == *" -e AA_SETUP_MODE=normal "* ]]
+    : > "$HOME/created"
+    printf '$8\\n'
+    ;;
+  show-environment)
+    [[ "$3" == '$8' && "$CASE" != foreign ]]
+    case "$4" in
+      AA_ATOLYE_OWNER) printf 'AA_ATOLYE_OWNER=ajan-atolyesi-public-v1\\n' ;;
+      AA_SETUP_MODE) printf 'AA_SETUP_MODE=normal\\n' ;;
+      *) exit 3 ;;
+    esac
+    ;;
+  attach-session)
+    [[ "$2 $3 $4" == '-E -t $8' ]]
+    printf 'attached:$8\\n'
+    ;;
+  *) exit 3 ;;
+esac
+""")
+            fake.chmod(0o700)
+            scenarios = [
+                ("owned", ["$8"], 0),
+                ("owned", ["$7"], 1),
+                ("foreign", [], 1),
+                ("foreign", ["$8"], 1),
+                ("creation", [], 0),
+                ("replacement", [], 1),
+            ]
+            for case, args, status in scenarios:
+                with self.subTest(case=case, args=args):
+                    (Path(tmp)/"created").unlink(missing_ok=True)
+                    report = subprocess.run([str(path), *args],
+                        env={"HOME":tmp, "PATH":tmp+":/usr/bin:/bin", "CASE":case},
+                        capture_output=True, text=True, timeout=5)
+                    self.assertEqual(report.returncode, status, report.stderr)
+                    if status == 0:
+                        self.assertEqual(report.stdout.strip(), "attached:$8")
+                    else:
+                        self.assertNotIn("attached:$8", report.stdout)
+                        self.assertIn("existing sessions were left unchanged", report.stderr)
+
     def test_new_pi_launch_does_not_attach_to_a_concurrently_created_session(self):
         pi_tmux = APP["pi_tmux"]
         with patch.dict(pi_tmux.__globals__, session_attachment=lambda _: ("trusted", ("/test/tmux", "$9"))), \
@@ -130,7 +202,7 @@ class LauncherTests(unittest.TestCase):
         run.assert_not_called()
         execute.assert_not_called()
 
-    def test_pi_without_saved_key_drops_inherited_provider_keys(self):
+    def test_pi_without_saved_key_notices_user_and_never_launches_bare_pi(self):
         pi_terminal = APP["pi_terminal"]
         with patch.dict(pi_terminal.__globals__, pi_binary=lambda: "/test/pi", saved_key=lambda: None), \
                 patch.dict(os.environ, {"NVIDIA_API_KEY": MOCK, "EVREN_API_KEY": "fake-evren"}), \
@@ -138,7 +210,9 @@ class LauncherTests(unittest.TestCase):
             pi_terminal()
         execute.assert_called_once()
         binary, args, env = execute.call_args.args
-        self.assertEqual((binary, args), ("/test/pi", ["/test/pi"]))
+        self.assertEqual(binary, "/bin/bash")
+        self.assertIn("Save your NVIDIA API key", args[-1])
+        self.assertNotIn("/test/pi", args)
         self.assertNotIn("NVIDIA_API_KEY", env)
         self.assertNotIn("EVREN_API_KEY", env)
 
@@ -358,7 +432,7 @@ esac
     def test_reminder_lists_only_exact_observed_sessions(self):
         from subprocess import CompletedProcess
         lines = "aa-codex $5\naa-evren-cli-test $8\naa-evren-cli $9\naa-claude not-an-id\n"
-        outputs = [lines, f'AA_ATOLYE_OWNER={APP["PUBLIC_TMUX_OWNER"]}\n', "AA_SETUP_MODE=normal\n"]
+        outputs = [lines] + [f'AA_ATOLYE_OWNER={APP["PUBLIC_TMUX_OWNER"]}\n', "AA_SETUP_MODE=normal\n"] * 2
         with patch("shutil.which", return_value="/test/tmux"), patch(
                 "subprocess.run", side_effect=[CompletedProcess([], 0, line, "") for line in outputs]):
             names = APP["atolye_sessions"]()

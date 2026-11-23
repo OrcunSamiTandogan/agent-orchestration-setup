@@ -170,8 +170,6 @@ def tmux_candidates():
 
 
 def trusted_session(name, target, mode="normal"):
-    if name == "aa-evren-cli":
-        return True  # The separate EVREN launcher has no unsafe mode.
     binary, session_id = target
     for variable, expected in (("AA_ATOLYE_OWNER", PUBLIC_TMUX_OWNER),
                                ("AA_SETUP_MODE", mode)):
@@ -275,11 +273,13 @@ def session_command(role, mode="normal", setup_selection=None, session_id=None):
     setup = role in ("setup-claude", "setup-codex") and mode != "existing"
     if (setup and setup_selection not in ("pi", "evren", "both")) or (not setup and setup_selection is not None):
         raise ValueError("Select at least one tool to verify")
-    if session_id is not None and (mode != "existing" or not (agent_for(role) or role == "pi")
+    if session_id is not None and (mode != "existing" or not (agent_for(role) or role in ("pi", "evren-cli"))
                                    or not re.fullmatch(r"\$[0-9]+", session_id)):
         raise ValueError("Invalid session ID")
     if role == "evren-cli" and mode in ("normal", "existing"):
-        return [str(ROOT / "bin/ajan-dsh-pane")]
+        if mode == "existing" and session_id is None:
+            raise ValueError("A DSH CLI tmux session ID is required")
+        return [str(ROOT / "bin/ajan-dsh-pane")] + ([session_id] if session_id else [])
     if role == "pi":
         if mode == "existing" and session_id is None:
             raise ValueError("A Pi tmux session ID is required")
@@ -452,17 +452,18 @@ def pi_terminal():
     except (OSError, ValueError):
         args = note_shell("Could not read the NVIDIA settings. See API keys for the file location. Troubleshooting: " + FAQ_URL)
         os.execve(args[0], args, env)
-    if key:
-        directory = config_dir() / "pi"
-        try:
-            add_nvidia_models(directory)
-        except (OSError, ValueError):
-            args = note_shell("Could not add NVIDIA model settings. The existing file was left unchanged.")
-            os.execve(args[0], args, env)
-        env["NVIDIA_API_KEY"] = key
-        env["PI_CODING_AGENT_DIR"] = str(directory)
-        os.execve(binary, [binary, "--models", NVIDIA_SCOPE, "--model", "nvidia/" + MINIMAX_ID, "--thinking", "low", "--no-extensions"], env)
-    os.execve(binary, [binary], env)
+    if not key:
+        args = note_shell("Save your NVIDIA API key in Agent Orchestration Setup, then select Pi again.")
+        return os.execve(args[0], args, env)
+    directory = config_dir() / "pi"
+    try:
+        add_nvidia_models(directory)
+    except (OSError, ValueError):
+        args = note_shell("Could not add NVIDIA model settings. The existing file was left unchanged.")
+        return os.execve(args[0], args, env)
+    env["NVIDIA_API_KEY"] = key
+    env["PI_CODING_AGENT_DIR"] = str(directory)
+    return os.execve(binary, [binary, "--models", NVIDIA_SCOPE, "--model", "nvidia/" + MINIMAX_ID, "--thinking", "low", "--no-extensions"], env)
 
 
 def session_icons():
@@ -952,6 +953,13 @@ def make_window(Gtk, Vte, Gio, GLib, smoke_terminal=False):
             status.set_text(f"{agent.capitalize()} was not found. Select Pi to get started.")
             return
         if role == "pi" and not existing and not smoke_terminal:
+            key_state = key_file_status()["NVIDIA_API_KEY"]
+            if key_state != "Saved":
+                status.set_text("Could not read the API key settings. See NVIDIA API key for help."
+                                if key_state == "Unreadable" else
+                                "Save your NVIDIA API key, then select Pi again.")
+                key_buttons["NVIDIA_API_KEY"].grab_focus()
+                return
             if not confirm_pi_folder(folder):
                 status.set_text("Pi was not opened.")
                 return
@@ -1008,7 +1016,7 @@ def make_window(Gtk, Vte, Gio, GLib, smoke_terminal=False):
                 GLib.timeout_add(320, refresh_folder)
         if role == "evren":
             folder = str(Path.home())
-        expected_id = identified[1] if identified and (agent or role == "pi") else None
+        expected_id = identified[1] if identified and (agent or role in ("pi", "evren-cli")) else None
         command = note_shell("Test terminal") if smoke_terminal and role == "evren" else (
             session_command(role, mode, setup_selection, session_id=expected_id))
         terminal.spawn_async(Vte.PtyFlags.DEFAULT, folder, command, None,

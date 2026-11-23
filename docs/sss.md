@@ -6,7 +6,7 @@
 
 **Can I paste my key into the setup prompt?** No. Use only the masked local input. Do not share the app’s credentials file or an unredacted log.
 
-**Why is my installed tool missing in the app?** Check its version and PATH in the app’s **Terminal**, not only your login shell. Pi requires Node.js 22.19+; DSH requires 24.9+. Check npm and tmux where applicable before reinstalling anything.
+**Why is my installed tool missing in the app?** Check its version and PATH in the app’s **Terminal**, not only your login shell. Pi requires Node.js 22.19+; DSH requires 24.9+. Check npm and tmux where applicable before reinstalling anything. See the [first-run checklist](first-run.md) for what to do when one is missing.
 
 **What’s the difference between DSH CLI and Web?** The former is a tmux-backed terminal tied to the SDK; the latter uses the official DeepSeek browser interface. See [DSH](evren-dsh.md).
 

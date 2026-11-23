@@ -3,20 +3,50 @@ set -euo pipefail
 dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="$dir:$HOME/.local/bin:$HOME/bin:$PATH"
 name=aa-evren-cli
-if [[ ${1:-} == --inside ]]; then
+owner=ajan-atolyesi-public-v1
+if [[ ${1:-} == --inside && $# == 1 ]]; then
   exec python3 "$dir/evren-dsh-terminal" --interactive
+fi
+refuse_session() {
+  printf 'Could not verify the aa-evren-cli session. Nothing was attached; existing sessions were left unchanged.\n' >&2
+  exit 1
+}
+expected=${1:-}
+if [[ $# -gt 1 || ( -n "$expected" && ! "$expected" =~ ^\$[0-9]+$ ) ]]; then
+  printf 'Invalid DSH CLI session ID.\n' >&2
+  exit 2
 fi
 if ! command -v tmux >/dev/null; then
   printf 'tmux was not found. Follow the setup guide for your system to install tmux.\n'
   exec /bin/bash --noprofile --norc -i
 fi
-if ! tmux has-session -t "=$name" 2>/dev/null; then
-  # Creating simultaneously may lose the race; attach only to the exact target.
-  if ! tmux new-session -d -s "$name" -c "$PWD" "$dir/ajan-dsh-pane" --inside; then
-    tmux has-session -t "=$name" 2>/dev/null || exit 1
+session_id() {
+  local all listed id extra found=''
+  all="$(tmux list-sessions -F '#{session_name} #{session_id}' 2>/dev/null)" || return 1
+  while IFS=' ' read -r listed id extra; do
+    if [[ "$listed" == "$name" && "$id" =~ ^\$[0-9]+$ && -z "$extra" ]]; then
+      [[ -z "$found" ]] || return 1
+      found=$id
+    fi
+  done <<< "$all"
+  [[ -n "$found" ]] || return 1
+  printf '%s\n' "$found"
+}
+owned_normal() {
+  [[ "$(tmux show-environment -t "$1" AA_ATOLYE_OWNER 2>/dev/null)" == "AA_ATOLYE_OWNER=$owner" ]] &&
+  [[ "$(tmux show-environment -t "$1" AA_SETUP_MODE 2>/dev/null)" == "AA_SETUP_MODE=normal" ]]
+}
+if [[ -z "$expected" ]]; then
+  expected="$(session_id)" || expected=
+  if [[ -z "$expected" ]]; then
+    expected="$(tmux new-session -d -E -P -F '#{session_id}' -s "$name" -c "$PWD" \
+      -e "AA_ATOLYE_OWNER=$owner" -e AA_SETUP_MODE=normal "$dir/ajan-dsh-pane" --inside)" || refuse_session
   fi
 fi
-if [[ -n ${TMUX:-} ]]; then
-  exec tmux switch-client -t "=$name"
+if [[ ! "$expected" =~ ^\$[0-9]+$ || "$(session_id)" != "$expected" ]] || ! owned_normal "$expected" || [[ "$(session_id)" != "$expected" ]]; then
+  refuse_session
 fi
-exec tmux attach-session -t "=$name"
+if [[ -n ${TMUX:-} ]]; then
+  exec tmux switch-client -E -t "$expected"
+fi
+exec tmux attach-session -E -t "$expected"
