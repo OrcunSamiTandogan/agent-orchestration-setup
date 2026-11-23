@@ -152,7 +152,7 @@ The Agensi guide can be loaded by a compatible agent. The repository documents t
 ### How do I use Agent Orchestration Setup?
 
 ```text
-Tell the guide your operating system, the local assistant you use, and your preferred route. Open the linked English README, copy the matching prompt into your local terminal assistant, and review each proposed installation step. Follow the verification checklist before a real task.
+Connect Claude Code or Codex CLI to Agensi with MCP, then select Use this skill or ask for Agent Orchestration Setup by name. Tell it your operating system and preferred route. The guide points you to the matching local installation prompt. Start here: https://github.com/OrcunSamiTandogan/agent-orchestration-setup/blob/master/docs/agensi.md
 ```
 
 ### Do I have to pay or share an API key?

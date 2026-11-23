@@ -128,7 +128,7 @@ Already using the Turkish edition? Read the [shared installation and upstream no
 
 ## Agensi companion
 
-The free Agensi guide is separate from the desktop app and does not run an installer. See the [skill source and upload package](agensi/SKILL.md) and the [copy-and-paste listing answers](agensi-answers.md).
+The free Agensi guide is separate from the desktop app and does not run an installer. [How to use the skill with Claude Code or Codex](docs/agensi.md) · [Skill source](agensi/SKILL.md) · [Paste-ready listing answers](agensi-answers.md)
 
 ## License and attribution
 
