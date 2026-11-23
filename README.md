@@ -2,6 +2,16 @@
 
 **Ajan Atölyesi / Agent Workshop** opens Pi, DSH, Claude Code, Codex, and a plain terminal in one desktop window. The app starts in English; choose **Türkçe (TR)** under **Language / Dil** in the left sidebar, then reopen the app when convenient. The selection is saved locally; changing it does not close running sessions. Pi and DSH run independently. You do not need Claude Code or Codex to use them.
 
+## See the app after installation
+
+This is the first launch on Ubuntu, before adding any API keys. The app opens in English by default. Select **Türkçe (TR)** under **Language / Dil** and reopen the app to see the Turkish interface.
+
+| English (default) | Türkçe |
+| --- | --- |
+| [![Agent Workshop first launch in English](agensi/english-first-run.png)](agensi/english-first-run.png) | [![Ajan Atölyesi Türkçe ilk açılış](agensi/turkish-first-run.png)](agensi/turkish-first-run.png) |
+
+Click either screenshot to see it full size.
+
 ## Start here
 
 **Already have Claude Code or Codex?** Choose one of the six prompts below. **Have neither?** Start with your [platform guide](#download-and-install). **Coming from Agensi?** The [guide skill](docs/agensi.md) helps pick the prompt; a desktop install still happens separately.
