@@ -2,6 +2,14 @@
 
 **Ajan Atölyesi / Agent Workshop** opens Pi, DSH, Claude Code, Codex, and a plain terminal in one desktop window. The app starts in English; choose **Türkçe (TR)** under **Language / Dil** in the left sidebar, then reopen the app when convenient. The selection is saved locally; changing it does not close running sessions. Pi and DSH run independently. You do not need Claude Code or Codex to use them.
 
+## Who this is for and where it is going
+
+The goal of this project is practical agent orchestration for small and medium businesses: help them set it up, set it up for them when needed, and make coding and work agents easier to use in daily work. Many business owners are not developers, so the direction is clear steps, safe defaults and guides in plain language.
+
+**What works today:** the desktop window, the English and Turkish interface, and the setup prompts described below.
+
+**What is planned (not available yet):** simple example workflows for small businesses that cover planning a task, giving it to an agent, reviewing the result and keeping a record.
+
 ## See the app after installation
 
 This is the first launch on Ubuntu, before adding any API keys. The app opens in English by default. Select **Türkçe (TR)** under **Language / Dil** and reopen the app to see the Turkish interface.
